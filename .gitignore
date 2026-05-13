@@ -12,3 +12,6 @@ build/
 .pytest_cache/
 .vscode/
 uv.lock
+.idea/
+.DS_Store
+*.log
