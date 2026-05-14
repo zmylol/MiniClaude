@@ -11,8 +11,9 @@ name = "MiniClaude"
 version = "0.0.1"
 requires-python = ">=3.12,<3.13" # 仅支持 3.12 小版本范围，与 CI/类型检查一致
 dependencies = [
-    "pydantic>=2.0",      # 数据校验与序列化（含 JSON 模型等）
-    "python-dotenv>=1.0", # .env 文件解析
+    "pydantic>=2.0",       # 数据校验与序列化（含 JSON 模型等）
+    "python-dotenv>=1.0",  # .env 文件解析
+    "anthropic>=0.25",     # Anthropic LLM SDK（流式 + prompt caching）
 ]
 
 # 安装后可在 PATH 中执行的入口：`mini` / `mini-core` / `mini-tui`
@@ -55,3 +56,6 @@ explicit_package_bases = true # 明确包根，减少隐式命名空间误判
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: marks tests that call the real Anthropic API (require ANTHROPIC_API_KEY)",
+]

@@ -1,0 +1,17 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from mini_claude.core.events.bus import EventBus
+from mini_claude.core.llm.types import LlmResponse
+
+
+class LLMProvider(Protocol):
+    # 流式调用 LLM 并发布进度事件，返回完整响应
+    async def chat(
+        self,
+        messages: list[dict[str, object]],
+        tool_schemas: list[dict[str, object]],
+        bus: EventBus,
+        run_id: str,
+    ) -> LlmResponse: ...

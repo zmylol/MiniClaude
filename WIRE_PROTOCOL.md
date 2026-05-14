@@ -12,10 +12,12 @@
 
 ### PingCommand
 
-| Field | Type | Required |
-|---|---|---|
-| `type` | `string` | no |
-| `client` | `string` | yes |
+
+| Field    | Type     | Required |
+| -------- | -------- | -------- |
+| `type`   | `string` | no       |
+| `client` | `string` | yes      |
+
 
 ```json
 {
@@ -54,11 +56,13 @@
 
 ### PongResult
 
-| Field | Type | Required |
-|---|---|---|
-| `server_version` | `string` | yes |
-| `uptime_ms` | `integer` | yes |
-| `received_at` | `string` | yes |
+
+| Field            | Type      | Required |
+| ---------------- | --------- | -------- |
+| `server_version` | `string`  | yes      |
+| `uptime_ms`      | `integer` | yes      |
+| `received_at`    | `string`  | yes      |
+
 
 ```json
 {
@@ -100,15 +104,19 @@
 }
 ```
 
-## Events
+## IPC Events
+
+Events sent over the IPC socket (daemon → client).
 
 ### CoreStartedEvent
 
-| Field | Type | Required |
-|---|---|---|
-| `type` | `string` | no |
-| `listen_addr` | `string` | yes |
-| `version` | `string` | yes |
+
+| Field         | Type     | Required |
+| ------------- | -------- | -------- |
+| `type`        | `string` | no       |
+| `listen_addr` | `string` | yes      |
+| `version`     | `string` | yes      |
+
 
 ```json
 {
@@ -137,12 +145,735 @@
 }
 ```
 
+## Run Events
+
+Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
+
+### RunStartedEvent
+
+
+| Field    | Type     | Required |
+| -------- | -------- | -------- |
+| `type`   | `string` | no       |
+| `run_id` | `string` | yes      |
+| `goal`   | `string` | yes      |
+| `ts`     | `string` | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "run.started",
+      "default": "run.started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "goal",
+    "ts"
+  ],
+  "title": "RunStartedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "run.started",
+  "run_id": "20260511-161020-abc123",
+  "goal": "\u603b\u7ed3 README.md",
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### RunFinishedEvent
+
+
+| Field    | Type      | Required |
+| -------- | --------- | -------- |
+| `type`   | `string`  | no       |
+| `run_id` | `string`  | yes      |
+| `status` | `string`  | yes      |
+| `reason` | `string   | null`    |
+| `steps`  | `integer` | yes      |
+| `ts`     | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "run.finished",
+      "default": "run.finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "steps": {
+      "title": "Steps",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "steps",
+    "ts"
+  ],
+  "title": "RunFinishedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "run.finished",
+  "run_id": "20260511-161020-abc123",
+  "status": "success",
+  "reason": null,
+  "steps": 2,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### StepStartedEvent
+
+
+| Field    | Type      | Required |
+| -------- | --------- | -------- |
+| `type`   | `string`  | no       |
+| `run_id` | `string`  | yes      |
+| `step`   | `integer` | yes      |
+| `ts`     | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "step.started",
+      "default": "step.started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "ts"
+  ],
+  "title": "StepStartedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "step.started",
+  "run_id": "20260511-161020-abc123",
+  "step": 1,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### StepFinishedEvent
+
+
+| Field    | Type      | Required |
+| -------- | --------- | -------- |
+| `type`   | `string`  | no       |
+| `run_id` | `string`  | yes      |
+| `step`   | `integer` | yes      |
+| `ts`     | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "step.finished",
+      "default": "step.finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "ts"
+  ],
+  "title": "StepFinishedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "step.finished",
+  "run_id": "20260511-161020-abc123",
+  "step": 1,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### ToolCallStartedEvent
+
+
+| Field         | Type     | Required |
+| ------------- | -------- | -------- |
+| `type`        | `string` | no       |
+| `run_id`      | `string` | yes      |
+| `tool_use_id` | `string` | yes      |
+| `tool_name`   | `string` | yes      |
+| `params`      | `object` | yes      |
+| `ts`          | `string` | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.call_started",
+      "default": "tool.call_started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "tool_name",
+    "params",
+    "ts"
+  ],
+  "title": "ToolCallStartedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "tool.call_started",
+  "run_id": "20260511-161020-abc123",
+  "tool_use_id": "toolu_01",
+  "tool_name": "read_file",
+  "params": {
+    "path": "README.md"
+  },
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### ToolCallFinishedEvent
+
+
+| Field         | Type      | Required |
+| ------------- | --------- | -------- |
+| `type`        | `string`  | no       |
+| `run_id`      | `string`  | yes      |
+| `tool_use_id` | `string`  | yes      |
+| `tool_name`   | `string`  | yes      |
+| `elapsed_ms`  | `integer` | yes      |
+| `ts`          | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.call_finished",
+      "default": "tool.call_finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "tool_name",
+    "elapsed_ms",
+    "ts"
+  ],
+  "title": "ToolCallFinishedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "tool.call_finished",
+  "run_id": "20260511-161020-abc123",
+  "tool_use_id": "toolu_01",
+  "tool_name": "read_file",
+  "elapsed_ms": 3,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### ToolCallFailedEvent
+
+
+| Field           | Type      | Required |
+| --------------- | --------- | -------- |
+| `type`          | `string`  | no       |
+| `run_id`        | `string`  | yes      |
+| `tool_use_id`   | `string`  | yes      |
+| `tool_name`     | `string`  | yes      |
+| `error_type`    | `string`  | yes      |
+| `error_message` | `string`  | yes      |
+| `elapsed_ms`    | `integer` | yes      |
+| `ts`            | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "tool.call_failed",
+      "default": "tool.call_failed",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "error_type": {
+      "title": "Error Type",
+      "type": "string"
+    },
+    "error_message": {
+      "title": "Error Message",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "tool_name",
+    "error_type",
+    "error_message",
+    "elapsed_ms",
+    "ts"
+  ],
+  "title": "ToolCallFailedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "tool.call_failed",
+  "run_id": "20260511-161020-abc123",
+  "tool_use_id": "toolu_02",
+  "tool_name": "read_file",
+  "error_type": "runtime_error",
+  "error_message": "file not found",
+  "elapsed_ms": 1,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### LlmModelSelectedEvent
+
+
+| Field      | Type     | Required |
+| ---------- | -------- | -------- |
+| `type`     | `string` | no       |
+| `run_id`   | `string` | yes      |
+| `model`    | `string` | yes      |
+| `strategy` | `string` | yes      |
+| `ts`       | `string` | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "llm.model_selected",
+      "default": "llm.model_selected",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "strategy": {
+      "title": "Strategy",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "model",
+    "strategy",
+    "ts"
+  ],
+  "title": "LlmModelSelectedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "llm.model_selected",
+  "run_id": "20260511-161020-abc123",
+  "model": "claude-sonnet-4-6",
+  "strategy": "static",
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### LlmTokenEvent
+
+
+| Field    | Type     | Required |
+| -------- | -------- | -------- |
+| `type`   | `string` | no       |
+| `run_id` | `string` | yes      |
+| `token`  | `string` | yes      |
+| `ts`     | `string` | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "llm.token",
+      "default": "llm.token",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "token": {
+      "title": "Token",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "token",
+    "ts"
+  ],
+  "title": "LlmTokenEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "llm.token",
+  "run_id": "20260511-161020-abc123",
+  "token": "The ",
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### LlmUsageEvent
+
+
+| Field                         | Type      | Required |
+| ----------------------------- | --------- | -------- |
+| `type`                        | `string`  | no       |
+| `run_id`                      | `string`  | yes      |
+| `input_tokens`                | `integer` | yes      |
+| `output_tokens`               | `integer` | yes      |
+| `cache_read_input_tokens`     | `integer` | yes      |
+| `cache_creation_input_tokens` | `integer` | yes      |
+| `ts`                          | `string`  | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "llm.usage",
+      "default": "llm.usage",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "input_tokens": {
+      "title": "Input Tokens",
+      "type": "integer"
+    },
+    "output_tokens": {
+      "title": "Output Tokens",
+      "type": "integer"
+    },
+    "cache_read_input_tokens": {
+      "title": "Cache Read Input Tokens",
+      "type": "integer"
+    },
+    "cache_creation_input_tokens": {
+      "title": "Cache Creation Input Tokens",
+      "type": "integer"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+    "ts"
+  ],
+  "title": "LlmUsageEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "llm.usage",
+  "run_id": "20260511-161020-abc123",
+  "input_tokens": 512,
+  "output_tokens": 48,
+  "cache_read_input_tokens": 490,
+  "cache_creation_input_tokens": 0,
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
+### LogLineEvent
+
+
+| Field     | Type     | Required |
+| --------- | -------- | -------- |
+| `type`    | `string` | no       |
+| `run_id`  | `string` | yes      |
+| `level`   | `string` | yes      |
+| `source`  | `string` | yes      |
+| `message` | `string` | yes      |
+| `ts`      | `string` | yes      |
+
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "log.line",
+      "default": "log.line",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "level": {
+      "title": "Level",
+      "type": "string"
+    },
+    "source": {
+      "title": "Source",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "level",
+    "source",
+    "message",
+    "ts"
+  ],
+  "title": "LogLineEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "log.line",
+  "run_id": "20260511-161020-abc123",
+  "level": "INFO",
+  "source": "mini_claude.core.loop",
+  "message": "step 1 started",
+  "ts": "2026-05-11T16:10:20.001Z"
+}
+```
+
 ## Error Codes
 
-| Code | Name | Meaning |
-|------|------|---------|
-| -32700 | Parse Error | Invalid JSON received |
-| -32600 | Invalid Request | Missing required JSON-RPC fields |
-| -32601 | Method Not Found | Unknown method |
-| -32602 | Invalid Params | Parameter validation failed |
-| -32603 | Internal Error | Handler raised an unhandled exception |
+
+| Code   | Name             | Meaning                               |
+| ------ | ---------------- | ------------------------------------- |
+| -32700 | Parse Error      | Invalid JSON received                 |
+| -32600 | Invalid Request  | Missing required JSON-RPC fields      |
+| -32601 | Method Not Found | Unknown method                        |
+| -32602 | Invalid Params   | Parameter validation failed           |
+| -32603 | Internal Error   | Handler raised an unhandled exception |
+
+

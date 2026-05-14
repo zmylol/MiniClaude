@@ -14,6 +14,8 @@ _DEFAULT_LOG_LEVEL = "INFO"
 _DEFAULT_LOG_FILE = "~/.mini/logs/core.log"
 _DEFAULT_LOG_FORMAT = "text"
 _DEFAULT_CONFIG_PATH = "~/.mini/config.toml"
+_DEFAULT_MAX_STEPS = 20
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 @dataclass
@@ -24,10 +26,23 @@ class LoggingConfig:
 
 
 @dataclass
+class AgentConfig:
+    max_steps: int = _DEFAULT_MAX_STEPS
+
+
+@dataclass
+class LlmConfig:
+    default_model: str = _DEFAULT_MODEL
+    router: str = "static"  # "static" | "rule_based" (S4) | "cost_budget" (S6)
+
+
+@dataclass
 class MiniConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
+    llm: LlmConfig = field(default_factory=LlmConfig)
 
 
 # 构建并返回运行时配置：默认值 → TOML → .env → 系统环境变量（后者优先级最高）
@@ -53,7 +68,7 @@ def get_config() -> MiniConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging"}
+    unknown = set(data.keys()) - {"core", "logging", "agent", "llm"}
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -89,6 +104,37 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
                     raise SystemExit(f"Config error: logging.{key} must be a string")
                 setattr(config.logging, key, val)
 
+    if "agent" in data:
+        agent = data["agent"]
+        if not isinstance(agent, dict):
+            raise SystemExit("Config error: [agent] must be a table")
+        unknown_agent: set[str] = set(agent.keys()) - {"max_steps"}
+        if unknown_agent:
+            raise SystemExit(f"Unknown [agent] keys: {', '.join(sorted(unknown_agent))}")
+        if "max_steps" in agent:
+            val = agent["max_steps"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: agent.max_steps must be a positive integer")
+            config.agent.max_steps = val
+
+    if "llm" in data:
+        llm = data["llm"]
+        if not isinstance(llm, dict):
+            raise SystemExit("Config error: [llm] must be a table")
+        unknown_llm: set[str] = set(llm.keys()) - {"default_model", "router"}
+        if unknown_llm:
+            raise SystemExit(f"Unknown [llm] keys: {', '.join(sorted(unknown_llm))}")
+        if "default_model" in llm:
+            val = llm["default_model"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: llm.default_model must be a string")
+            config.llm.default_model = val
+        if "router" in llm:
+            val = llm["router"]
+            if not isinstance(val, str):
+                raise SystemExit("Config error: llm.router must be a string")
+            config.llm.router = val
+
 
 # 用 MINI_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: MiniConfig) -> None:
@@ -114,3 +160,22 @@ def _apply_env(config: MiniConfig) -> None:
     log_format = os.environ.get("MINI_LOG_FORMAT")
     if log_format is not None:
         config.logging.format = log_format
+
+    max_steps_str = os.environ.get("MINI_MAX_STEPS")
+    if max_steps_str is not None:
+        try:
+            val = int(max_steps_str)
+            if val <= 0:
+                raise SystemExit(
+                    "Config error: MINI_MAX_STEPS must be a positive integer,"
+                    f" got: {max_steps_str!r}"
+                )
+            config.agent.max_steps = val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: MINI_MAX_STEPS must be an integer, got: {max_steps_str!r}"
+            )
+
+    default_model = os.environ.get("MINI_LLM_DEFAULT_MODEL")
+    if default_model is not None:
+        config.llm.default_model = default_model
