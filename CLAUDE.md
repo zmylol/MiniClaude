@@ -88,6 +88,20 @@ async def _send(self, writer: asyncio.StreamWriter, msg: BaseModel) -> None:
 
 Do not write multi-line docstrings; one concise Chinese line is enough.
 
+**Test functions** require **two Chinese comment lines** immediately above the `def` line:
+
+```python
+# 功能：验证 publish 后订阅者能收到事件对象
+# 设计：用内联 handler 收集事件引用，断言 is 而非 ==，排除序列化中间步骤的干扰
+async def test_publish_reaches_subscriber() -> None:
+    ...
+```
+
+- `# 功能：` — 该测试验证的具体行为或不变式，一句话说清楚"测什么"
+- `# 设计：` — 为什么选择这种测试方式：覆盖了什么边界条件、为什么用这个 stub/fixture、这种断言方式相比其他方式的优势
+
+两行注释缺一不可。功能行让读者 5 秒内判断测试意图；设计行让读者理解测试背后的决策，而非只看到操作步骤。
+
 ### Design docs (outside the repo)
 
 The planning documents live in `../docs/` (sibling of this repo, not committed here):

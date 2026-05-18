@@ -35,6 +35,9 @@ def sample_file(tmp_path: Path) -> Path:
     return f
 
 
+# 功能：验证完整的端到端 agent 链路：调用真实 LLM → 执行 read_file → 成功完成并写入 events.jsonl
+# 设计：使用真实 ANTHROPIC_API_KEY 和真实文件，goal 中指定一个具体的数字（7391）以便断言 LLM 确实读了文件；
+#       通过 events.jsonl 的事件序列断言每个关键阶段都被记录，而非只检查 stdout，因为 events.jsonl 是 S1 的核心验收产物
 async def test_run_e2e_reads_file_and_succeeds(
     sample_file: Path,
     tmp_path: Path,

@@ -71,6 +71,8 @@ async def _run(
 # --- tests -------------------------------------------------------------------
 
 
+# 功能：验证正常调用时返回工具内容且发布 started + finished 事件
+# 设计：同时检查返回值和事件序列，因为 invoke_tool 的双重职责是"返回结果 + 发布事件"，缺一不可
 async def test_success_returns_content_and_finished_event() -> None:
     registry = ToolRegistry()
     registry.register(_EchoTool())
@@ -83,6 +85,8 @@ async def test_success_returns_content_and_finished_event() -> None:
     assert "tool.call_failed" not in types
 
 
+# 功能：验证调用不存在的工具时返回 runtime_error 并发布 failed 事件而非 finished
+# 设计：传入空 registry，确认 error_type 和事件类型同时正确，排除"未知工具却发布了 finished"的情况
 async def test_unknown_tool_returns_runtime_error() -> None:
     result, events = await _run(ToolRegistry(), _call("nonexistent"))
     assert result.is_error
@@ -94,6 +98,8 @@ async def test_unknown_tool_returns_runtime_error() -> None:
     assert "tool.call_finished" not in types
 
 
+# 功能：验证缺少必填参数时返回 schema_error 而非 runtime_error
+# 设计：注册需要 msg 参数的 EchoTool 但传空 input，确认错误分类准确，schema 错误与运行时错误对 S4 重试策略有不同影响
 async def test_missing_required_param_gives_schema_error() -> None:
     registry = ToolRegistry()
     registry.register(_EchoTool())
@@ -104,6 +110,8 @@ async def test_missing_required_param_gives_schema_error() -> None:
     assert "tool.call_failed" in types
 
 
+# 功能：验证工具执行超时时返回 timeout 类型错误而非 runtime_error
+# 设计：使用永久 sleep 的 SlowTool + 极短超时（50ms），测试 asyncio.wait_for 的超时路径，确认超时被正确分类
 async def test_timeout_gives_timeout_error() -> None:
     registry = ToolRegistry()
     registry.register(_SlowTool())
@@ -114,6 +122,8 @@ async def test_timeout_gives_timeout_error() -> None:
     assert "tool.call_failed" in types
 
 
+# 功能：验证工具内部抛出异常时被捕获并转为 runtime_error，错误信息保留原始异常消息
+# 设计：工具直接 raise RuntimeError，确认异常不向上传播（invoke_tool 的"不抛异常"契约），error_message 包含 "boom"
 async def test_runtime_exception_gives_runtime_error() -> None:
     registry = ToolRegistry()
     registry.register(_BrokenTool())
@@ -123,6 +133,8 @@ async def test_runtime_exception_gives_runtime_error() -> None:
     assert "boom" in result.content
 
 
+# 功能：验证 tool.call_started 始终是第一个被发布的事件，即使工具调用最终失败
+# 设计：用不存在的工具触发失败路径，确认即使失败也先发布 started，保证事件流的时序可观测性
 async def test_started_event_always_first() -> None:
     result, events = await _run(ToolRegistry(), _call("nonexistent"))
     assert events[0].type == "tool.call_started"  # type: ignore[attr-defined]

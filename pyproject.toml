@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.0",       # 数据校验与序列化（含 JSON 模型等）
     "python-dotenv>=1.0",  # .env 文件解析
     "anthropic>=0.25",     # Anthropic LLM SDK（流式 + prompt caching）
+    "textual>=0.75",       # 终端 UI 框架（mini-tui）
 ]
 
 # 安装后可在 PATH 中执行的入口：`mini` / `mini-core` / `mini-tui`
@@ -44,6 +45,10 @@ target-version = "py312" # 语法/规则按 Python 3.12
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"] # pycodestyle 错误、Pyflakes、isort、pyupgrade
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["E501"]   # 测试文件的中文注释允许超过行宽限制
+"scripts/**/*.py" = ["E501"] # 脚本文件的文档字符串允许超过行宽限制
 
 # ---- Mypy：严格类型检查 ----
 [tool.mypy]

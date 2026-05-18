@@ -6,18 +6,18 @@
 
 - TCP loopback `127.0.0.1:7437` (override via `MINI_HOST` / `MINI_PORT`)
 - Each message is one `\n`-terminated JSON line (NDJSON)
-- Commands use JSON-RPC 2.0; Events use a custom `kind=event` envelope
+- Commands use JSON-RPC 2.0 (client → server); Events use `kind=event` envelope (server → client)
 
 ## Commands
 
+All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params` is used for routing.
+
 ### PingCommand
 
-
-| Field    | Type     | Required |
-| -------- | -------- | -------- |
-| `type`   | `string` | no       |
-| `client` | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `client` | `string` | yes |
 
 ```json
 {
@@ -56,13 +56,11 @@
 
 ### PongResult
 
-
-| Field            | Type      | Required |
-| ---------------- | --------- | -------- |
-| `server_version` | `string`  | yes      |
-| `uptime_ms`      | `integer` | yes      |
-| `received_at`    | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `server_version` | `string` | yes |
+| `uptime_ms` | `integer` | yes |
+| `received_at` | `string` | yes |
 
 ```json
 {
@@ -97,9 +95,245 @@
   "jsonrpc": "2.0",
   "id": "u-1",
   "result": {
-    "server_version": "0.0.1",
+    "server_version": "0.2.0",
     "uptime_ms": 12,
-    "received_at": "2026-05-11T07:31:14.022Z"
+    "received_at": "2026-05-16T10:00:00.001Z"
+  }
+}
+```
+
+### AgentRunCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `goal` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "agent.run",
+      "default": "agent.run",
+      "title": "Type",
+      "type": "string"
+    },
+    "goal": {
+      "title": "Goal",
+      "type": "string"
+    }
+  },
+  "required": [
+    "goal"
+  ],
+  "title": "AgentRunCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-2",
+  "method": "agent.run",
+  "params": {
+    "goal": "\u603b\u7ed3 README.md \u7684\u4e3b\u8981\u7ae0\u8282"
+  }
+}
+```
+
+### AgentRunResult
+
+| Field | Type | Required |
+|---|---|---|
+| `run_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "AgentRunResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-2",
+  "result": {
+    "run_id": "20260516-100000-abc123"
+  }
+}
+```
+
+### EventSubscribeCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `topics` | `array` | yes |
+| `scope` | `string` | no |
+| `replay_from_run` | `string | null` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "event.subscribe",
+      "default": "event.subscribe",
+      "title": "Type",
+      "type": "string"
+    },
+    "topics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Topics",
+      "type": "array"
+    },
+    "scope": {
+      "default": "global",
+      "title": "Scope",
+      "type": "string"
+    },
+    "replay_from_run": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Replay From Run"
+    }
+  },
+  "required": [
+    "topics"
+  ],
+  "title": "EventSubscribeCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-3",
+  "method": "event.subscribe",
+  "params": {
+    "topics": [
+      "run.*",
+      "step.*",
+      "tool.*",
+      "llm.token"
+    ],
+    "scope": "global",
+    "replay_from_run": null
+  }
+}
+```
+
+### EventSubscribeResult
+
+| Field | Type | Required |
+|---|---|---|
+| `subscription_id` | `string` | yes |
+| `replayed_count` | `integer` | no |
+
+```json
+{
+  "properties": {
+    "subscription_id": {
+      "title": "Subscription Id",
+      "type": "string"
+    },
+    "replayed_count": {
+      "default": 0,
+      "title": "Replayed Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "subscription_id"
+  ],
+  "title": "EventSubscribeResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-3",
+  "result": {
+    "subscription_id": "sub-abc123",
+    "replayed_count": 0
+  }
+}
+```
+
+## Server Push
+
+Events pushed from daemon to subscribed clients over the same TCP connection.
+
+### EventPushEnvelope
+
+| Field | Type | Required |
+|---|---|---|
+| `kind` | `string` | no |
+| `event` | `object` | yes |
+
+```json
+{
+  "properties": {
+    "kind": {
+      "const": "event",
+      "default": "event",
+      "title": "Kind",
+      "type": "string"
+    },
+    "event": {
+      "additionalProperties": true,
+      "title": "Event",
+      "type": "object"
+    }
+  },
+  "required": [
+    "event"
+  ],
+  "title": "EventPushEnvelope",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "kind": "event",
+  "event": {
+    "type": "step.started",
+    "run_id": "20260516-100000-abc123",
+    "step": 1,
+    "ts": "2026-05-16T10:00:00.001Z"
   }
 }
 ```
@@ -110,13 +344,11 @@ Events sent over the IPC socket (daemon → client).
 
 ### CoreStartedEvent
 
-
-| Field         | Type     | Required |
-| ------------- | -------- | -------- |
-| `type`        | `string` | no       |
-| `listen_addr` | `string` | yes      |
-| `version`     | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `listen_addr` | `string` | yes |
+| `version` | `string` | yes |
 
 ```json
 {
@@ -147,18 +379,16 @@ Events sent over the IPC socket (daemon → client).
 
 ## Run Events
 
-Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
+Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscribed clients.
 
 ### RunStartedEvent
 
-
-| Field    | Type     | Required |
-| -------- | -------- | -------- |
-| `type`   | `string` | no       |
-| `run_id` | `string` | yes      |
-| `goal`   | `string` | yes      |
-| `ts`     | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `goal` | `string` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -197,24 +427,22 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "run.started",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "goal": "\u603b\u7ed3 README.md",
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### RunFinishedEvent
 
-
-| Field    | Type      | Required |
-| -------- | --------- | -------- |
-| `type`   | `string`  | no       |
-| `run_id` | `string`  | yes      |
-| `status` | `string`  | yes      |
-| `reason` | `string   | null`    |
-| `steps`  | `integer` | yes      |
-| `ts`     | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `status` | `string` | yes |
+| `reason` | `string | null` | no |
+| `steps` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -270,24 +498,22 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "run.finished",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "status": "success",
   "reason": null,
   "steps": 2,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### StepStartedEvent
 
-
-| Field    | Type      | Required |
-| -------- | --------- | -------- |
-| `type`   | `string`  | no       |
-| `run_id` | `string`  | yes      |
-| `step`   | `integer` | yes      |
-| `ts`     | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -326,22 +552,20 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "step.started",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "step": 1,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### StepFinishedEvent
 
-
-| Field    | Type      | Required |
-| -------- | --------- | -------- |
-| `type`   | `string`  | no       |
-| `run_id` | `string`  | yes      |
-| `step`   | `integer` | yes      |
-| `ts`     | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -380,24 +604,22 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "step.finished",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "step": 1,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### ToolCallStartedEvent
 
-
-| Field         | Type     | Required |
-| ------------- | -------- | -------- |
-| `type`        | `string` | no       |
-| `run_id`      | `string` | yes      |
-| `tool_use_id` | `string` | yes      |
-| `tool_name`   | `string` | yes      |
-| `params`      | `object` | yes      |
-| `ts`          | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `tool_name` | `string` | yes |
+| `params` | `object` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -447,28 +669,26 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "tool.call_started",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "tool_use_id": "toolu_01",
   "tool_name": "read_file",
   "params": {
     "path": "README.md"
   },
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### ToolCallFinishedEvent
 
-
-| Field         | Type      | Required |
-| ------------- | --------- | -------- |
-| `type`        | `string`  | no       |
-| `run_id`      | `string`  | yes      |
-| `tool_use_id` | `string`  | yes      |
-| `tool_name`   | `string`  | yes      |
-| `elapsed_ms`  | `integer` | yes      |
-| `ts`          | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `tool_name` | `string` | yes |
+| `elapsed_ms` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -517,28 +737,26 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "tool.call_finished",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "tool_use_id": "toolu_01",
   "tool_name": "read_file",
   "elapsed_ms": 3,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### ToolCallFailedEvent
 
-
-| Field           | Type      | Required |
-| --------------- | --------- | -------- |
-| `type`          | `string`  | no       |
-| `run_id`        | `string`  | yes      |
-| `tool_use_id`   | `string`  | yes      |
-| `tool_name`     | `string`  | yes      |
-| `error_type`    | `string`  | yes      |
-| `error_message` | `string`  | yes      |
-| `elapsed_ms`    | `integer` | yes      |
-| `ts`            | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `tool_name` | `string` | yes |
+| `error_type` | `string` | yes |
+| `error_message` | `string` | yes |
+| `elapsed_ms` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -597,27 +815,25 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "tool.call_failed",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "tool_use_id": "toolu_02",
   "tool_name": "read_file",
   "error_type": "runtime_error",
   "error_message": "file not found",
   "elapsed_ms": 1,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### LlmModelSelectedEvent
 
-
-| Field      | Type     | Required |
-| ---------- | -------- | -------- |
-| `type`     | `string` | no       |
-| `run_id`   | `string` | yes      |
-| `model`    | `string` | yes      |
-| `strategy` | `string` | yes      |
-| `ts`       | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `model` | `string` | yes |
+| `strategy` | `string` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -661,23 +877,21 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "llm.model_selected",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "model": "claude-sonnet-4-6",
   "strategy": "static",
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### LlmTokenEvent
 
-
-| Field    | Type     | Required |
-| -------- | -------- | -------- |
-| `type`   | `string` | no       |
-| `run_id` | `string` | yes      |
-| `token`  | `string` | yes      |
-| `ts`     | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `token` | `string` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -716,25 +930,23 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "llm.token",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "token": "The ",
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### LlmUsageEvent
 
-
-| Field                         | Type      | Required |
-| ----------------------------- | --------- | -------- |
-| `type`                        | `string`  | no       |
-| `run_id`                      | `string`  | yes      |
-| `input_tokens`                | `integer` | yes      |
-| `output_tokens`               | `integer` | yes      |
-| `cache_read_input_tokens`     | `integer` | yes      |
-| `cache_creation_input_tokens` | `integer` | yes      |
-| `ts`                          | `string`  | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `input_tokens` | `integer` | yes |
+| `output_tokens` | `integer` | yes |
+| `cache_read_input_tokens` | `integer` | yes |
+| `cache_creation_input_tokens` | `integer` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -788,27 +1000,25 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "llm.usage",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "input_tokens": 512,
   "output_tokens": 48,
   "cache_read_input_tokens": 490,
   "cache_creation_input_tokens": 0,
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ### LogLineEvent
 
-
-| Field     | Type     | Required |
-| --------- | -------- | -------- |
-| `type`    | `string` | no       |
-| `run_id`  | `string` | yes      |
-| `level`   | `string` | yes      |
-| `source`  | `string` | yes      |
-| `message` | `string` | yes      |
-| `ts`      | `string` | yes      |
-
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `level` | `string` | yes |
+| `source` | `string` | yes |
+| `message` | `string` | yes |
+| `ts` | `string` | yes |
 
 ```json
 {
@@ -857,23 +1067,21 @@ Events written to `runs/<run_id>/events.jsonl` (and forwarded over IPC in S2+).
 ```json
 {
   "type": "log.line",
-  "run_id": "20260511-161020-abc123",
+  "run_id": "20260516-100000-abc123",
   "level": "INFO",
   "source": "mini_claude.core.loop",
   "message": "step 1 started",
-  "ts": "2026-05-11T16:10:20.001Z"
+  "ts": "2026-05-16T10:00:00.001Z"
 }
 ```
 
 ## Error Codes
 
-
-| Code   | Name             | Meaning                               |
-| ------ | ---------------- | ------------------------------------- |
-| -32700 | Parse Error      | Invalid JSON received                 |
-| -32600 | Invalid Request  | Missing required JSON-RPC fields      |
-| -32601 | Method Not Found | Unknown method                        |
-| -32602 | Invalid Params   | Parameter validation failed           |
-| -32603 | Internal Error   | Handler raised an unhandled exception |
-
-
+| Code | Name | Meaning |
+|------|------|---------|
+| -32700 | Parse Error | Invalid JSON received |
+| -32600 | Invalid Request | Missing required JSON-RPC fields |
+| -32601 | Method Not Found | Unknown method |
+| -32602 | Invalid Params | Parameter validation failed |
+| -32603 | Internal Error | Handler raised an unhandled exception |
+| -32000 | Application Error | e.g. another run already in progress |

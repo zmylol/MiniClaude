@@ -93,6 +93,8 @@ async def _events(bus: EventBus) -> list[BaseModel]:
 # --- tests -------------------------------------------------------------------
 
 
+# 功能：验证 LLM 返回 end_turn 时 loop 将 context 标记为 success
+# 设计：单步 provider 直接返回 end_turn，最简正常路径，确认 loop 的基本终止逻辑
 async def test_end_turn_marks_success() -> None:
     provider = _MockProvider([LlmResponse(stop_reason="end_turn", text="done")])
     loop, _ = _make_loop(provider)
@@ -102,6 +104,8 @@ async def test_end_turn_marks_success() -> None:
     assert ctx.step == 1
 
 
+# 功能：验证达到 max_steps 时 loop 以 exceeded_max_steps 原因将 context 标记为 failed
+# 设计：设置 max_steps=2 + 无限 tool_use provider，同时验证 step 数量和失败原因，确认计数器与终止逻辑联动正确
 async def test_max_steps_marks_failed() -> None:
     tc = _tc("unknown", {})
     provider = _MockProvider([LlmResponse(stop_reason="tool_use", tool_calls=[tc])] * 10)
@@ -113,6 +117,8 @@ async def test_max_steps_marks_failed() -> None:
     assert ctx.step == 2
 
 
+# 功能：验证"调工具 → end_turn"的两步路径最终标记为 success
+# 设计：provider 返回 [tool_use, end_turn] 序列，注册真实 EchoTool，覆盖最常见的正常工作路径
 async def test_tool_use_then_end_turn_marks_success() -> None:
     provider = _MockProvider([
         LlmResponse(stop_reason="tool_use", tool_calls=[_tc()]),
@@ -127,6 +133,8 @@ async def test_tool_use_then_end_turn_marks_success() -> None:
     assert ctx.step == 2
 
 
+# 功能：验证工具结果按 Anthropic 格式（tool_result user 消息）追加到消息历史
+# 设计：检查 messages[2]（tool_result 所在位置），断言 tool_use_id 和 content，确认 loop 正确调用了 context.add_tool_result
 async def test_tool_result_appended_to_context() -> None:
     provider = _MockProvider([
         LlmResponse(stop_reason="tool_use", tool_calls=[_tc(inp={"msg": "hello"})]),
@@ -145,6 +153,8 @@ async def test_tool_result_appended_to_context() -> None:
     assert block["content"] == "hello"
 
 
+# 功能：验证工具失败时 loop 不终止，而是将错误追加上下文让 LLM 重新决策
+# 设计：工具始终 raise + provider 第二步返回 end_turn，确认 loop 最终到达 success；这是 agent 区别于普通脚本的核心特性
 async def test_tool_failure_loop_continues_to_success() -> None:
     provider = _MockProvider([
         LlmResponse(stop_reason="tool_use", tool_calls=[_tc("fail", {})]),
@@ -159,6 +169,8 @@ async def test_tool_failure_loop_continues_to_success() -> None:
     assert ctx.step == 2
 
 
+# 功能：验证工具失败的错误信息以 is_error=True 追加进上下文，让 LLM 能感知工具调用失败
+# 设计：检查 tool_result block 中的 is_error 标记，与 test_tool_failure_loop_continues_to_success 互补
 async def test_tool_failure_result_is_error_in_context() -> None:
     provider = _MockProvider([
         LlmResponse(stop_reason="tool_use", tool_calls=[_tc("fail", {})]),
@@ -174,6 +186,8 @@ async def test_tool_failure_result_is_error_in_context() -> None:
     assert block.get("is_error") is True
 
 
+# 功能：验证收到 CancelledError 时 loop 将 context 标记为 cancelled 后继续上抛 CancelledError
+# 设计：用 pytest.raises 捕获 CancelledError，同时检查 context.status，确认优雅退出行为：先记录状态，再传播取消信号
 async def test_cancelled_error_marks_failed_and_reraises() -> None:
     provider = _MockProvider([], exc=asyncio.CancelledError())
     loop, _ = _make_loop(provider)
@@ -184,6 +198,8 @@ async def test_cancelled_error_marks_failed_and_reraises() -> None:
     assert ctx.reason == "cancelled"
 
 
+# 功能：验证 LLM 调用异常被捕获并标记为 llm_error，不向上传播
+# 设计：provider 抛 RuntimeError，确认 loop 不崩溃、context 状态为 failed/llm_error，异常被正确吸收
 async def test_llm_api_error_marks_failed() -> None:
     provider = _MockProvider([], exc=RuntimeError("api error"))
     loop, _ = _make_loop(provider)
@@ -193,6 +209,8 @@ async def test_llm_api_error_marks_failed() -> None:
     assert ctx.reason == "llm_error"
 
 
+# 功能：验证每个步骤都发布 step.started 和 step.finished 事件
+# 设计：注入 bus + 事件收集器，检查事件类型集合，确认步骤级事件的可观测性（S2 TUI 依赖这两个事件显示进度）
 async def test_step_started_and_finished_events_published() -> None:
     bus = EventBus()
     events = await _events(bus)
@@ -205,6 +223,8 @@ async def test_step_started_and_finished_events_published() -> None:
     assert "step.finished" in types
 
 
+# 功能：验证多步执行后 step 计数器正确累积到步数总量
+# 设计：三步序列 [tool_use, tool_use, end_turn]，确认 step==3，排除计数器初始化错误或某步未递增的情况
 async def test_step_counter_increments_across_steps() -> None:
     provider = _MockProvider([
         LlmResponse(stop_reason="tool_use", tool_calls=[_tc()]),
@@ -220,6 +240,8 @@ async def test_step_counter_increments_across_steps() -> None:
     assert ctx.status == "success"
 
 
+# 功能：验证 LLM 文本响应以正确的 content block 格式追加到消息历史
+# 设计：检查 messages[1] 的 role 和 content block 结构，确认 loop 构造的 assistant 消息符合 Anthropic 格式
 async def test_assistant_message_blocks_added_to_context() -> None:
     provider = _MockProvider([LlmResponse(stop_reason="end_turn", text="answer")])
     loop, _ = _make_loop(provider)

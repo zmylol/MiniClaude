@@ -27,29 +27,26 @@ class AgentRunner:
         self,
         config: MiniConfig,
         *,
+        bus: EventBus | None = None,
         provider: LLMProvider | None = None,
         extra_handlers: list[EventHandler] | None = None,
         runs_dir: Path | None = None,
     ) -> None:
         self._config = config
+        self._bus = bus
         self._provider = provider
         self._extra_handlers: list[EventHandler] = extra_handlers or []
         self._runs_dir = runs_dir or RUNS_DIR
 
-    # 执行一次完整的 agent run：生成 run_id、接线事件总线、驱动 AgentLoop
-    async def run(self, goal: str) -> None:
-        run_id = new_run_id()
+    # 执行一次完整的 agent run：接线事件总线、驱动 AgentLoop、写 events.jsonl
+    async def run(self, goal: str, *, run_id: str | None = None) -> None:
+        run_id = run_id or new_run_id()
         run_path = self._runs_dir / run_id
         run_path.mkdir(parents=True, exist_ok=True)
 
-        bus = EventBus()
+        bus = self._bus if self._bus is not None else EventBus()
         for h in self._extra_handlers:
             bus.subscribe(h)
-
-        provider = self._provider or AnthropicProvider(self._config.llm.default_model)
-        registry = ToolRegistry()
-        registry.register(ReadFileTool())
-        loop = AgentLoop(provider, registry, bus)
 
         context = ExecutionContext(
             run_id=run_id,
@@ -60,6 +57,11 @@ class AgentRunner:
         async with EventWriter(run_path / "events.jsonl") as writer:
             writer.subscribe(bus)
             await bus.publish(RunStartedEvent(run_id=run_id, goal=goal, ts=_now()))
+
+            provider = self._provider or AnthropicProvider(self._config.llm.default_model)
+            registry = ToolRegistry()
+            registry.register(ReadFileTool())
+            loop = AgentLoop(provider, registry, bus)
 
             cancelled = False
             try:
