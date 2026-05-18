@@ -6,6 +6,7 @@ import sys
 from mini_claude.cli.commands.core import cmd_core_start, cmd_core_status, cmd_core_stop
 from mini_claude.cli.commands.ping import cmd_ping
 from mini_claude.cli.commands.run import cmd_run
+from mini_claude.cli.commands.trace import cmd_trace
 from mini_claude.cli.commands.version import cmd_version
 from mini_claude.core.config import get_config
 from mini_claude.core.logging_setup import setup_logging
@@ -27,6 +28,13 @@ def main() -> None:
     core_sub.add_parser("start", help="Start the daemon in the background")
     core_sub.add_parser("stop", help="Stop the running daemon")
     core_sub.add_parser("status", help="Show daemon status")
+
+    trace_parser = subparsers.add_parser("trace", help="View system trace log")
+    trace_parser.add_argument("run_id", nargs="?", default=None, help="Filter by run ID")
+    trace_parser.add_argument("--layer", choices=["ipc", "event", "llm"], help="Filter by layer")
+    trace_parser.add_argument("--direction", help="Filter by direction (e.g. CORE→LLM)")
+    trace_parser.add_argument("--raw", action="store_true", help="Output raw NDJSON")
+    trace_parser.add_argument("--follow", "-f", action="store_true", help="Follow new records")
 
     args = parser.parse_args()
 
@@ -51,6 +59,15 @@ def main() -> None:
         else:
             core_parser.print_help()
             sys.exit(1)
+    elif args.command == "trace":
+        cmd_trace(
+            args.run_id,
+            config,
+            layer=args.layer,
+            direction=args.direction,
+            raw=args.raw,
+            follow=args.follow,
+        )
     else:
         parser.print_help()
         sys.exit(1)

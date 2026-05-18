@@ -15,6 +15,8 @@ from mini_claude.core.loop import AgentLoop
 from mini_claude.core.runs import RUNS_DIR, new_run_id
 from mini_claude.core.tools.builtin.read_file import ReadFileTool
 from mini_claude.core.tools.registry import ToolRegistry
+from mini_claude.core.trace.provider import TracingProvider
+from mini_claude.core.trace.writer import TraceWriter
 
 
 def _now() -> str:
@@ -31,12 +33,14 @@ class AgentRunner:
         provider: LLMProvider | None = None,
         extra_handlers: list[EventHandler] | None = None,
         runs_dir: Path | None = None,
+        trace: TraceWriter | None = None,
     ) -> None:
         self._config = config
         self._bus = bus
         self._provider = provider
         self._extra_handlers: list[EventHandler] = extra_handlers or []
         self._runs_dir = runs_dir or RUNS_DIR
+        self._trace = trace
 
     # 执行一次完整的 agent run：接线事件总线、驱动 AgentLoop、写 events.jsonl
     async def run(self, goal: str, *, run_id: str | None = None) -> None:
@@ -58,7 +62,15 @@ class AgentRunner:
             writer.subscribe(bus)
             await bus.publish(RunStartedEvent(run_id=run_id, goal=goal, ts=_now()))
 
-            provider = self._provider or AnthropicProvider(self._config.llm.default_model)
+            provider: LLMProvider = self._provider or AnthropicProvider(
+                self._config.llm.default_model
+            )
+            if self._trace is not None:
+                provider = TracingProvider(
+                    provider,
+                    self._trace,
+                    include_payload=self._config.trace.include_llm_payload,
+                )
             registry = ToolRegistry()
             registry.register(ReadFileTool())
             loop = AgentLoop(provider, registry, bus)

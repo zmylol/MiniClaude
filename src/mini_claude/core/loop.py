@@ -42,6 +42,7 @@ class AgentLoop:
                     tool_schemas=self._registry.tool_schemas(),
                     bus=self._bus,
                     run_id=context.run_id,
+                    step=context.step,
                 )
             except asyncio.CancelledError:
                 context.mark_failed("cancelled")

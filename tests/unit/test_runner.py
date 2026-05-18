@@ -22,6 +22,8 @@ class _EndTurnProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         run_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         return LlmResponse(stop_reason="end_turn", text="done")
 
@@ -38,6 +40,8 @@ class _LoopingProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         run_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         self._call += 1
         tc = ToolCallBlock(id=f"t{self._call}", name="unknown_tool", input={})

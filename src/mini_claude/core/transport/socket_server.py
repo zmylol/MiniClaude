@@ -5,6 +5,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -14,10 +15,13 @@ from mini_claude.core.bus.envelope import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    JsonRpcError,
     JsonRpcRequest,
     JsonRpcSuccess,
     make_error,
 )
+from mini_claude.core.trace.record import TraceRecord
+from mini_claude.core.trace.writer import TraceWriter
 from mini_claude.core.transport.ipc_broadcaster import IpcEventBroadcaster
 
 logger = logging.getLogger(__name__)
@@ -26,6 +30,10 @@ type CommandHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 
 # 每个连接处理协程中，当前正在处理的 writer（供 handler 读取连接上下文）
 _writer_var: ContextVar[asyncio.StreamWriter] = ContextVar("_writer_var")
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 # 返回当前 handler 调用所属连接的 StreamWriter
@@ -37,13 +45,18 @@ _MAX_LINE_BYTES = 1 * 1024 * 1024  # 1 MB per frame
 
 class SocketServer:
     def __init__(
-        self, host: str, port: int, broadcaster: IpcEventBroadcaster | None = None
+        self,
+        host: str,
+        port: int,
+        broadcaster: IpcEventBroadcaster | None = None,
+        trace: TraceWriter | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._handlers: dict[str, CommandHandler] = {}
         self._server: asyncio.AbstractServer | None = None
         self._broadcaster = broadcaster
+        self._trace = trace
 
     # 注册一个方法名对应的命令处理函数
     def register(self, method: str, handler: CommandHandler) -> None:
@@ -126,6 +139,19 @@ class SocketServer:
             await self._send(writer, make_error(None, INVALID_REQUEST, "Invalid Request", str(e)))
             return
 
+        if self._trace is not None:
+            client_id = str(writer.get_extra_info("peername", "<unknown>"))
+            self._trace.emit(
+                TraceRecord(
+                    ts=_now(),
+                    direction="CLIENT→CORE",
+                    layer="ipc",
+                    kind="command",
+                    client_id=client_id,
+                    data={"method": req.method, "id": req.id, "params": req.params},
+                )
+            )
+
         handler = self._handlers.get(req.method)
         if handler is None:
             await self._send(
@@ -155,3 +181,16 @@ class SocketServer:
     async def _send(self, writer: asyncio.StreamWriter, msg: BaseModel) -> None:
         writer.write(msg.model_dump_json().encode() + b"\n")
         await writer.drain()
+        if self._trace is not None:
+            kind = "error" if isinstance(msg, JsonRpcError) else "response"
+            client_id = str(writer.get_extra_info("peername", "<unknown>"))
+            self._trace.emit(
+                TraceRecord(
+                    ts=_now(),
+                    direction="CORE→CLIENT",
+                    layer="ipc",
+                    kind=kind,
+                    client_id=client_id,
+                    data=msg.model_dump(),
+                )
+            )

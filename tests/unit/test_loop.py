@@ -32,6 +32,8 @@ class _MockProvider:
         tool_schemas: list[dict[str, object]],
         bus: EventBus,
         run_id: str,
+        *,
+        step: int = 0,
     ) -> LlmResponse:
         if self._exc is not None:
             raise self._exc
