@@ -1,79 +1,135 @@
 from __future__ import annotations
 
-from typing import Any
+from textual.widget import Widget
 
-from mini_claude.tui.app import MiniTuiApp
-
-
-class _FakeLog:
-    def __init__(self) -> None:
-        self.lines: list[str] = []
-
-    def write(self, text: str) -> None:
-        self.lines.append(text)
+from mini_claude.tui.app import MiniTuiApp, LLMStreamBlock, ToolCallBlock, _preview
 
 
-# 功能：验证 llm.token 事件被累积进 token 缓冲区，下一个非 token 事件触发整体写入
-# 设计：用 _FakeLog 代替真实 RichLog，绕开 Textual 渲染层，直接测试缓冲逻辑；
-#       断言缓冲区在 token 事件后非空，在 step 事件后清空并整体写入，验证一行性
-def test_llm_tokens_buffered_and_flushed_together() -> None:
+# 功能：验证 _preview 超出长度时截断并追加省略号
+# 设计：不依赖任何 TUI 组件，纯函数测试
+def test_preview_truncates() -> None:
+    assert _preview("abcde", 3) == "abc…"
+    assert _preview("ab", 5) == "ab"
+
+
+# 功能：验证 llm.token 事件累积到 LLMStreamBlock，不连续 token 各自新开一块
+# 设计：monkey-patch _append 收集追加的 widgets，断言 token 追加到同一块；
+#       发送非 token 事件后新 block 被重置，下一个 token 开启新块
+def test_llm_tokens_accumulate_in_block() -> None:
     app = MiniTuiApp("127.0.0.1", 9999)
-    log: Any = _FakeLog()
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
 
-    app._handle_event({"type": "llm.token", "token": "Hello", "run_id": "r", "ts": "t"}, log)
-    app._handle_event({"type": "llm.token", "token": " world", "run_id": "r", "ts": "t"}, log)
-    assert app._token_buf == "Hello world"  # type: ignore[attr-defined]
-    assert log.lines == []  # not yet written
+    app._handle_event({"type": "llm.token", "token": "Hello", "run_id": "r", "ts": "t"})
+    app._handle_event({"type": "llm.token", "token": " world", "run_id": "r", "ts": "t"})
 
-    app._handle_event(
-        {"type": "step.finished", "run_id": "r", "step": 1, "ts": "t"}, log
-    )
-    assert app._token_buf == ""  # type: ignore[attr-defined]
-    assert any("Hello world" in line for line in log.lines)
+    assert len(appended) == 1  # same block reused
+    assert isinstance(appended[0], LLMStreamBlock)
+    assert appended[0]._text == "Hello world"  # type: ignore[attr-defined]
 
 
-# 功能：验证 run.started 事件将 run_id 和 goal 写入日志
-# 设计：_FakeLog 记录所有 write 调用，断言 run_id 和 goal 出现在某行，
-#       不约束格式细节，避免日志字符串变化导致测试脆化
-def test_run_started_writes_run_id_and_goal() -> None:
+# 功能：验证非 token 事件后 _current_llm 被重置，下一个 token 开启新块
+# 设计：插入 step.started 中断流，验证之后的 llm.token 创建新 LLMStreamBlock
+def test_llm_block_resets_after_non_token_event() -> None:
     app = MiniTuiApp("127.0.0.1", 9999)
-    log: Any = _FakeLog()
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
 
-    app._handle_event(
-        {"type": "run.started", "run_id": "20260515-abc", "goal": "test the thing", "ts": "t"},
-        log,
-    )
-    combined = "\n".join(log.lines)
-    assert "20260515-abc" in combined
-    assert "test the thing" in combined
+    app._handle_event({"type": "llm.token", "token": "A", "run_id": "r", "ts": "t"})
+    app._handle_event({"type": "step.started", "run_id": "r", "step": 2, "ts": "t"})
+    app._handle_event({"type": "llm.token", "token": "B", "run_id": "r", "ts": "t"})
+
+    llm_blocks = [w for w in appended if isinstance(w, LLMStreamBlock)]
+    assert len(llm_blocks) == 2
 
 
-# 功能：验证 run.finished 按 status 决定颜色标记（success=green，failed=red）
-# 设计：分别发送 success 和 failed 事件，检查输出中对应颜色标签存在，
-#       两次使用同一 app 实例以确认状态不被前次调用污染
-def test_run_finished_color_depends_on_status() -> None:
+# 功能：验证 run.started 事件追加 Static widget 且包含 run_id 和 goal
+# 设计：monkey-patch _append，断言追加的 widget 的 renderable 包含关键字段
+def test_run_started_appends_widget_with_content() -> None:
     app = MiniTuiApp("127.0.0.1", 9999)
-    log_success: Any = _FakeLog()
-    log_failed: Any = _FakeLog()
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
 
-    app._handle_event(
-        {"type": "run.finished", "run_id": "r", "status": "success", "steps": 2, "ts": "t"},
-        log_success,
-    )
-    app._handle_event(
-        {"type": "run.finished", "run_id": "r", "status": "failed", "steps": 3, "ts": "t"},
-        log_failed,
-    )
+    app._handle_event({
+        "type": "run.started", "run_id": "run-abc", "goal": "do the thing", "ts": "t"
+    })
 
-    assert any("green" in line for line in log_success.lines)
-    assert any("red" in line for line in log_failed.lines)
+    assert len(appended) == 1
+    rendered = appended[0].content
+    assert "run-abc" in rendered
+    assert "do the thing" in rendered
 
 
-# 功能：验证 unknown type 的事件不写入日志也不抛异常（静默忽略）
-# 设计：发送未知 type，断言 write 未被调用，确认 _handle_event 的默认路径是静默忽略而非报错
-def test_unknown_event_type_is_silently_ignored() -> None:
+# 功能：验证 run.finished success 追加包含 "completed" 的 widget
+# 设计：monkey-patch _append，检查 rendered 内容包含 completed 和 green
+def test_run_finished_success_shows_completed() -> None:
     app = MiniTuiApp("127.0.0.1", 9999)
-    log: Any = _FakeLog()
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
 
-    app._handle_event({"type": "some.unknown.event", "run_id": "r", "ts": "t"}, log)
-    assert log.lines == []
+    app._handle_event({
+        "type": "run.finished", "run_id": "r", "status": "success", "steps": 3, "ts": "t"
+    })
+
+    rendered = appended[0].content
+    assert "completed" in rendered
+    assert "green" in rendered
+
+
+# 功能：验证 run.finished failed 追加包含 "failed" 和 red 的 widget
+# 设计：与 success 对称，检查颜色标记差异
+def test_run_finished_failed_shows_red() -> None:
+    app = MiniTuiApp("127.0.0.1", 9999)
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+
+    app._handle_event({
+        "type": "run.finished", "run_id": "r", "status": "failed",
+        "steps": 1, "reason": "llm_error", "ts": "t"
+    })
+
+    rendered = appended[0].content
+    assert "failed" in rendered
+    assert "red" in rendered
+
+
+# 功能：验证 tool.call_started 追加 ToolCallBlock，call_finished 更新其结果
+# 设计：直接调用 _handle_event 两次，通过 _pending_tool_blocks 验证状态流转
+def test_tool_call_started_and_finished() -> None:
+    app = MiniTuiApp("127.0.0.1", 9999)
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+
+    app._handle_event({
+        "type": "tool.call_started",
+        "tool_use_id": "uid-1",
+        "tool_name": "bash",
+        "params": {"command": "echo hi"},
+        "run_id": "r", "ts": "t",
+    })
+    assert "uid-1" in app._pending_tool_blocks  # type: ignore[attr-defined]
+
+    app._handle_event({
+        "type": "tool.call_finished",
+        "tool_use_id": "uid-1",
+        "tool_name": "bash",
+        "elapsed_ms": 42,
+        "output": "hi",
+        "run_id": "r", "ts": "t",
+    })
+    assert "uid-1" not in app._pending_tool_blocks  # type: ignore[attr-defined]
+    block = appended[0]
+    assert isinstance(block, ToolCallBlock)
+    assert block._finished  # type: ignore[attr-defined]
+    assert block._output == "hi"  # type: ignore[attr-defined]
+
+
+# 功能：验证未知事件类型不抛异常也不追加任何 widget
+# 设计：发送 type 为 unknown 的事件，断言 appended 为空
+def test_unknown_event_silently_ignored() -> None:
+    app = MiniTuiApp("127.0.0.1", 9999)
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+
+    app._handle_event({"type": "some.unknown.type", "run_id": "r", "ts": "t"})
+    assert appended == []

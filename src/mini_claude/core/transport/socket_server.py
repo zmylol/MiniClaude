@@ -15,6 +15,7 @@ from mini_claude.core.bus.envelope import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    HandlerError,
     JsonRpcError,
     JsonRpcRequest,
     JsonRpcSuccess,
@@ -163,6 +164,9 @@ class SocketServer:
         _writer_var.set(writer)
         try:
             result = await handler(req.params)
+        except HandlerError as e:
+            await self._send(writer, make_error(req.id, e.code, str(e), e.data))
+            return
         except ValidationError as e:
             await self._send(
                 writer,

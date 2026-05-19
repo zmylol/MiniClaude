@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,7 +14,17 @@ from mini_claude.core.llm.base import LLMProvider
 from mini_claude.core.llm.provider import AnthropicProvider
 from mini_claude.core.loop import AgentLoop
 from mini_claude.core.runs import RUNS_DIR, new_run_id
-from mini_claude.core.tools.builtin.read_file import ReadFileTool
+from mini_claude.core.task.manager import TaskManager
+from mini_claude.core.tools.builtin import (
+    BashTool,
+    ListDirTool,
+    ReadFileTool,
+    TaskCreateTool,
+    TaskGetTool,
+    TaskListTool,
+    TaskUpdateTool,
+    WriteFileTool,
+)
 from mini_claude.core.tools.registry import ToolRegistry
 from mini_claude.core.trace.provider import TracingProvider
 from mini_claude.core.trace.writer import TraceWriter
@@ -21,6 +32,13 @@ from mini_claude.core.trace.writer import TraceWriter
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+@dataclass
+class RunOutcome:
+    status: str
+    result: str
+    reason: str | None
 
 
 class AgentRunner:
@@ -42,11 +60,32 @@ class AgentRunner:
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
 
-    # 执行一次完整的 agent run：接线事件总线、驱动 AgentLoop、写 events.jsonl
+    # 构建工具注册表，注入 TaskManager（任务工具共享同一实例）
+    def _build_registry(self, task_manager: TaskManager) -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(ReadFileTool())
+        registry.register(BashTool())
+        registry.register(WriteFileTool())
+        registry.register(ListDirTool())
+        registry.register(TaskCreateTool(task_manager))
+        registry.register(TaskUpdateTool(task_manager))
+        registry.register(TaskListTool(task_manager))
+        registry.register(TaskGetTool(task_manager))
+        return registry
+
+    # 执行一次完整的 agent run（委托给 run_and_capture，忽略返回值）
     async def run(self, goal: str, *, run_id: str | None = None) -> None:
+        await self.run_and_capture(goal, run_id=run_id)
+
+    # 执行 agent run 并返回 RunOutcome（含最终文字结果）
+    async def run_and_capture(
+        self, goal: str, *, run_id: str | None = None
+    ) -> RunOutcome:
         run_id = run_id or new_run_id()
         run_path = self._runs_dir / run_id
         run_path.mkdir(parents=True, exist_ok=True)
+
+        task_manager = TaskManager(run_path / ".tasks")
 
         bus = self._bus if self._bus is not None else EventBus()
         for h in self._extra_handlers:
@@ -71,8 +110,7 @@ class AgentRunner:
                     self._trace,
                     include_payload=self._config.trace.include_llm_payload,
                 )
-            registry = ToolRegistry()
-            registry.register(ReadFileTool())
+            registry = self._build_registry(task_manager)
             loop = AgentLoop(provider, registry, bus)
 
             cancelled = False
@@ -95,3 +133,9 @@ class AgentRunner:
 
         if cancelled:
             raise asyncio.CancelledError()
+
+        return RunOutcome(
+            status=context.status,
+            result=context.result,
+            reason=context.reason,
+        )

@@ -688,6 +688,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 | `tool_use_id` | `string` | yes |
 | `tool_name` | `string` | yes |
 | `elapsed_ms` | `integer` | yes |
+| `output` | `string` | no |
 | `ts` | `string` | yes |
 
 ```json
@@ -714,6 +715,11 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "elapsed_ms": {
       "title": "Elapsed Ms",
       "type": "integer"
+    },
+    "output": {
+      "default": "",
+      "title": "Output",
+      "type": "string"
     },
     "ts": {
       "title": "Ts",

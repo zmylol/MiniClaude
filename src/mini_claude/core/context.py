@@ -13,6 +13,7 @@ class ExecutionContext:
     step: int = 0
     status: str = "running"  # "running" | "success" | "failed"
     reason: str | None = None
+    result: str = ""
 
     # 初始化时将 goal 作为第一条用户消息写入消息历史
     def __post_init__(self) -> None:

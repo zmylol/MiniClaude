@@ -45,8 +45,8 @@ class CoreApp:
         self._bus = EventBus()
         self._broadcaster: IpcEventBroadcaster | None = None
         self._trace: TraceWriter | None = None
-        self._current_run_task: asyncio.Task[None] | None = None
         self._config: MiniConfig | None = None
+        self._running_runs: set[asyncio.Task[None]] = set()
 
     # 处理 core.ping 请求，返回服务版本、运行时长和接收时间
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
@@ -73,19 +73,15 @@ class CoreApp:
             )
         )
 
-    # 启动一次 agent run：立即返回 run_id，后台 task 执行 runner.run()
+    # 启动一次 agent run：异步创建 AgentRunner 并立即返回 run_id
     async def _agent_run_handler(self, params: dict[str, Any]) -> AgentRunResult:
         assert self._config is not None
         cmd = AgentRunCommand.model_validate(params)
-
-        if self._current_run_task is not None and not self._current_run_task.done():
-            raise RuntimeError("a run is already in progress")
-
         run_id = new_run_id()
         runner = AgentRunner(self._config, bus=self._bus, trace=self._trace)
-        self._current_run_task = asyncio.create_task(
-            runner.run(cmd.goal, run_id=run_id)
-        )
+        run_task = asyncio.create_task(runner.run(cmd.goal, run_id=run_id))
+        self._running_runs.add(run_task)
+        run_task.add_done_callback(self._running_runs.discard)
         return AgentRunResult(run_id=run_id)
 
     # 注册客户端事件订阅，可选先回放 events.jsonl 历史再接收实时流
@@ -170,6 +166,10 @@ class CoreApp:
         await shutdown.wait()
 
         logger.info("shutting down")
+        for run_task in list(self._running_runs):
+            run_task.cancel()
+        if self._running_runs:
+            await asyncio.gather(*self._running_runs, return_exceptions=True)
         await server.stop()
         if self._trace is not None:
             await self._trace.stop()

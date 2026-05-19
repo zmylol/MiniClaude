@@ -56,6 +56,7 @@ class ToolCallFinishedEvent(BaseModel):
     tool_use_id: str
     tool_name: str
     elapsed_ms: int
+    output: str = ""  # tool result content, for TUI display
     ts: str
 
 

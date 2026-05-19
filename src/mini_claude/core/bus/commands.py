@@ -39,6 +39,8 @@ class EventSubscribeResult(BaseModel):
 
 # 根据 type 字段决定命令类型的判别联合
 Command = Annotated[
-    PingCommand | AgentRunCommand | EventSubscribeCommand,
+    PingCommand
+    | AgentRunCommand
+    | EventSubscribeCommand,
     Discriminator("type"),
 ]
