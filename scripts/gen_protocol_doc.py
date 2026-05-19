@@ -14,6 +14,14 @@ from mini_claude.core.bus.commands import (
     EventSubscribeResult,
     PingCommand,
     PongResult,
+    SessionCloseCommand,
+    SessionCloseResult,
+    SessionCreateCommand,
+    SessionCreateResult,
+    SessionGetHistoryCommand,
+    SessionGetHistoryResult,
+    SessionSendMessageCommand,
+    SessionSendMessageResult,
 )
 from mini_claude.core.bus.envelope import EventPushEnvelope
 from mini_claude.core.bus.events import (
@@ -24,6 +32,11 @@ from mini_claude.core.bus.events import (
     LogLineEvent,
     RunFinishedEvent,
     RunStartedEvent,
+    SessionClosedEvent,
+    SessionCreatedEvent,
+    SessionMessageReceivedEvent,
+    SessionResumedEvent,
+    SessionWaitingForInputEvent,
     StepFinishedEvent,
     StepStartedEvent,
     ToolCallFailedEvent,
@@ -105,6 +118,29 @@ def generate() -> str:
         "id": "u-3",
         "result": {"subscription_id": "sub-abc123", "replayed_count": 0},
     }
+    session_id = "sess-abc123def456"
+    session_create_req_example = {
+        "jsonrpc": "2.0",
+        "id": "u-4",
+        "method": "session.create",
+        "params": {"mode": "chat", "title": ""},
+    }
+    session_create_resp_example = {
+        "jsonrpc": "2.0",
+        "id": "u-4",
+        "result": {"session_id": session_id, "status": "active"},
+    }
+    session_send_req_example = {
+        "jsonrpc": "2.0",
+        "id": "u-5",
+        "method": "session.send_message",
+        "params": {"session_id": session_id, "content": "总结 README.md"},
+    }
+    session_send_resp_example = {
+        "jsonrpc": "2.0",
+        "id": "u-5",
+        "result": {"run_id": run_id},
+    }
     event_push_example = {
         "kind": "event",
         "event": {
@@ -135,6 +171,22 @@ def generate() -> str:
         _model_section("EventSubscribeCommand", EventSubscribeCommand, subscribe_req_example),
         "\n",
         _model_section("EventSubscribeResult", EventSubscribeResult, subscribe_resp_example),
+        "\n",
+        _model_section("SessionCreateCommand", SessionCreateCommand, session_create_req_example),
+        "\n",
+        _model_section("SessionCreateResult", SessionCreateResult, session_create_resp_example),
+        "\n",
+        _model_section("SessionSendMessageCommand", SessionSendMessageCommand, session_send_req_example),
+        "\n",
+        _model_section("SessionSendMessageResult", SessionSendMessageResult, session_send_resp_example),
+        "\n",
+        _model_section("SessionGetHistoryCommand", SessionGetHistoryCommand),
+        "\n",
+        _model_section("SessionGetHistoryResult", SessionGetHistoryResult),
+        "\n",
+        _model_section("SessionCloseCommand", SessionCloseCommand),
+        "\n",
+        _model_section("SessionCloseResult", SessionCloseResult),
         "\n## Server Push\n\n",
         "Events pushed from daemon to subscribed clients over the same TCP connection.\n\n",
         _model_section("EventPushEnvelope", EventPushEnvelope, event_push_example),
@@ -183,6 +235,23 @@ def generate() -> str:
         _model_section("LogLineEvent", LogLineEvent,
             {"type": "log.line", "run_id": run_id, "level": "INFO",
              "source": "mini_claude.core.loop", "message": "step 1 started", "ts": ts}),
+        "\n## Session Events\n\n",
+        _model_section("SessionCreatedEvent", SessionCreatedEvent,
+            {"type": "session.created", "session_id": session_id, "mode": "chat", "ts": ts}),
+        "\n",
+        _model_section("SessionMessageReceivedEvent", SessionMessageReceivedEvent,
+            {"type": "session.message_received", "session_id": session_id,
+             "content": "总结 README.md", "ts": ts}),
+        "\n",
+        _model_section("SessionWaitingForInputEvent", SessionWaitingForInputEvent,
+            {"type": "session.waiting_for_input", "session_id": session_id,
+             "last_run_id": run_id, "ts": ts}),
+        "\n",
+        _model_section("SessionResumedEvent", SessionResumedEvent,
+            {"type": "session.resumed", "session_id": session_id, "ts": ts}),
+        "\n",
+        _model_section("SessionClosedEvent", SessionClosedEvent,
+            {"type": "session.closed", "session_id": session_id, "ts": ts}),
         "\n## Error Codes\n\n",
         "| Code | Name | Meaning |\n",
         "|------|------|---------|\n",

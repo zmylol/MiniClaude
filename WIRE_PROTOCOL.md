@@ -290,6 +290,297 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 }
 ```
 
+### SessionCreateCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `mode` | `string` | no |
+| `title` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.create",
+      "default": "session.create",
+      "title": "Type",
+      "type": "string"
+    },
+    "mode": {
+      "default": "chat",
+      "enum": [
+        "one_shot",
+        "chat"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "title": "SessionCreateCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-4",
+  "method": "session.create",
+  "params": {
+    "mode": "chat",
+    "title": ""
+  }
+}
+```
+
+### SessionCreateResult
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string` | yes |
+| `status` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "active",
+        "waiting_for_input",
+        "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "status"
+  ],
+  "title": "SessionCreateResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-4",
+  "result": {
+    "session_id": "sess-abc123def456",
+    "status": "active"
+  }
+}
+```
+
+### SessionSendMessageCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `content` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.send_message",
+      "default": "session.send_message",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "content": {
+      "title": "Content",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "content"
+  ],
+  "title": "SessionSendMessageCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-5",
+  "method": "session.send_message",
+  "params": {
+    "session_id": "sess-abc123def456",
+    "content": "\u603b\u7ed3 README.md"
+  }
+}
+```
+
+### SessionSendMessageResult
+
+| Field | Type | Required |
+|---|---|---|
+| `run_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "SessionSendMessageResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-5",
+  "result": {
+    "run_id": "20260516-100000-abc123"
+  }
+}
+```
+
+### SessionGetHistoryCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.get_history",
+      "default": "session.get_history",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionGetHistoryCommand",
+  "type": "object"
+}
+```
+
+### SessionGetHistoryResult
+
+| Field | Type | Required |
+|---|---|---|
+| `messages` | `array` | yes |
+
+```json
+{
+  "properties": {
+    "messages": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Messages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "messages"
+  ],
+  "title": "SessionGetHistoryResult",
+  "type": "object"
+}
+```
+
+### SessionCloseCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.close",
+      "default": "session.close",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionCloseCommand",
+  "type": "object"
+}
+```
+
+### SessionCloseResult
+
+| Field | Type | Required |
+|---|---|---|
+| `status` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "status": {
+      "enum": [
+        "active",
+        "waiting_for_input",
+        "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "SessionCloseResult",
+  "type": "object"
+}
+```
+
 ## Server Push
 
 Events pushed from daemon to subscribed clients over the same TCP connection.
@@ -1077,6 +1368,254 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
   "level": "INFO",
   "source": "mini_claude.core.loop",
   "message": "step 1 started",
+  "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+## Session Events
+
+### SessionCreatedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `mode` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.created",
+      "default": "session.created",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "mode": {
+      "title": "Mode",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "mode",
+    "ts"
+  ],
+  "title": "SessionCreatedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "session.created",
+  "session_id": "sess-abc123def456",
+  "mode": "chat",
+  "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+### SessionMessageReceivedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `content` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.message_received",
+      "default": "session.message_received",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "content": {
+      "title": "Content",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "content",
+    "ts"
+  ],
+  "title": "SessionMessageReceivedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "session.message_received",
+  "session_id": "sess-abc123def456",
+  "content": "\u603b\u7ed3 README.md",
+  "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+### SessionWaitingForInputEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `last_run_id` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.waiting_for_input",
+      "default": "session.waiting_for_input",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "last_run_id": {
+      "title": "Last Run Id",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "last_run_id",
+    "ts"
+  ],
+  "title": "SessionWaitingForInputEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "session.waiting_for_input",
+  "session_id": "sess-abc123def456",
+  "last_run_id": "20260516-100000-abc123",
+  "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+### SessionResumedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.resumed",
+      "default": "session.resumed",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "ts"
+  ],
+  "title": "SessionResumedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "session.resumed",
+  "session_id": "sess-abc123def456",
+  "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+### SessionClosedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.closed",
+      "default": "session.closed",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "ts"
+  ],
+  "title": "SessionClosedEvent",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "type": "session.closed",
+  "session_id": "sess-abc123def456",
   "ts": "2026-05-16T10:00:00.001Z"
 }
 ```

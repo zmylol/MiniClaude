@@ -105,6 +105,39 @@ class LogLineEvent(BaseModel):
     ts: str
 
 
+class SessionCreatedEvent(BaseModel):
+    type: Literal["session.created"] = "session.created"
+    session_id: str
+    mode: str
+    ts: str
+
+
+class SessionMessageReceivedEvent(BaseModel):
+    type: Literal["session.message_received"] = "session.message_received"
+    session_id: str
+    content: str
+    ts: str
+
+
+class SessionWaitingForInputEvent(BaseModel):
+    type: Literal["session.waiting_for_input"] = "session.waiting_for_input"
+    session_id: str
+    last_run_id: str
+    ts: str
+
+
+class SessionResumedEvent(BaseModel):
+    type: Literal["session.resumed"] = "session.resumed"
+    session_id: str
+    ts: str
+
+
+class SessionClosedEvent(BaseModel):
+    type: Literal["session.closed"] = "session.closed"
+    session_id: str
+    ts: str
+
+
 # 根据 type 字段决定事件类型的判别联合
 Event = Annotated[
     CoreStartedEvent
@@ -118,6 +151,11 @@ Event = Annotated[
     | LlmTokenEvent
     | LlmUsageEvent
     | LlmModelSelectedEvent
-    | LogLineEvent,
+    | LogLineEvent
+    | SessionCreatedEvent
+    | SessionMessageReceivedEvent
+    | SessionWaitingForInputEvent
+    | SessionResumedEvent
+    | SessionClosedEvent,
     Discriminator("type"),
 ]

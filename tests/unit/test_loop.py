@@ -34,6 +34,7 @@ class _MockProvider:
         run_id: str,
         *,
         step: int = 0,
+        system: str | None = None,
     ) -> LlmResponse:
         if self._exc is not None:
             raise self._exc

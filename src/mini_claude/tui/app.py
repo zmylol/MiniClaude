@@ -4,11 +4,15 @@ import asyncio
 import json
 from typing import Any
 
+from rich.markdown import Markdown
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.css.query import NoMatches
+from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Label, Static
+from textual.widgets import Label, Static, TextArea
 
 from mini_claude.core.config import MiniConfig
 from mini_claude.core.transport.socket_client import IpcError, SocketClient
@@ -19,7 +23,23 @@ def _preview(s: str, n: int) -> str:
 
 
 def _params_str(params: dict[str, Any]) -> str:
-    return json.dumps(params, ensure_ascii=False)
+    return json.dumps(params, ensure_ascii=False, indent=2)
+
+
+# 从工具参数中提取最适合摘要展示的关键字段
+def _param_summary(tool_name: str, params: dict[str, Any], max_len: int = 72) -> str:
+    keys_by_tool = {
+        "read_file": ("path",),
+        "write_file": ("path",),
+        "list_dir": ("path", "max_depth"),
+        "bash": ("command",),
+        "note_save": ("content",),
+    }
+    keys = keys_by_tool.get(tool_name, ())
+    parts = [f"{key}={params[key]!r}" for key in keys if key in params]
+    if not parts:
+        parts = [f"{key}={value!r}" for key, value in list(params.items())[:2]]
+    return _preview(", ".join(parts), max_len)
 
 
 class LLMStreamBlock(Static):
@@ -31,19 +51,31 @@ class LLMStreamBlock(Static):
     def __init__(self) -> None:
         super().__init__("")
         self._text = ""
+        self._finalized = False
 
     # 追加一个 token 并刷新显示
     def append_token(self, token: str) -> None:
+        if self._finalized:
+            return
         self._text += token
         self.update(self._text)
+
+    # 将累积文本渲染为 Markdown，供流式块结束后显示
+    def finalize_markdown(self) -> None:
+        if self._finalized:
+            return
+        self._finalized = True
+        if self._text.strip():
+            self.update(Markdown(self._text, code_theme="monokai"))
 
 
 class ToolCallBlock(Widget):
     """可折叠的工具调用块：折叠时显示摘要，点击后展开完整 params 和 output。"""
 
     DEFAULT_CSS = """
-    ToolCallBlock { height: auto; padding: 0 0; }
-    ToolCallBlock > .detail { display: none; padding: 0 4; color: $text-muted; }
+    ToolCallBlock { height: auto; padding: 0 2; color: $text-muted; }
+    ToolCallBlock > .summary { color: $text-muted; }
+    ToolCallBlock > .detail { display: none; padding: 0 2 0 4; color: $text-muted; }
     ToolCallBlock.expanded > .detail { display: block; }
     """
 
@@ -64,17 +96,18 @@ class ToolCallBlock(Widget):
 
     # 生成摘要行文本
     def _summary(self) -> str:
-        params_pre = _preview(self._params_full, 60)
-        icon = "[bold yellow]✎[/bold yellow]"
-        line = f"  {icon} [bold]{self._tool_name}[/bold]  [dim]{params_pre}[/dim]"
+        if self._tool_name == "note_save" and self._finished and not self._is_error:
+            return f"  [green]remembered[/green]  [dim]{self._elapsed_ms}ms[/dim]"
+
+        params_pre = _param_summary(self._tool_name, self._params)
+        line = f"  [dim]tool[/dim] [bold]{self._tool_name}[/bold]"
+        if params_pre:
+            line += f"  [dim]{params_pre}[/dim]"
         if self._finished:
-            out_pre = _preview(self._output, 50)
-            color = "red" if self._is_error else "dim"
-            hint = "  [dim]▸ click to expand[/dim]" if len(self._output) > 50 else ""
-            line += (
-                f"\n  [dim]↳[/dim] [{color}]{out_pre}[/{color}]"
-                f"  [dim]{self._elapsed_ms}ms[/dim]{hint}"
-            )
+            color = "red" if self._is_error else "green"
+            status = "failed" if self._is_error else "done"
+            hint = "  [dim](click to expand)[/dim]" if self._output else ""
+            line += f"  [{color}]{status}[/{color}]  [dim]{self._elapsed_ms}ms[/dim]{hint}"
         return line
 
     # 工具调用完成时更新结果并刷新摘要（widget 未挂载时跳过 DOM 更新）
@@ -95,11 +128,56 @@ class ToolCallBlock(Widget):
         else:
             detail = self.query_one(".detail", Static)
             detail.update(
-                f"[dim]params:[/dim]\n    {self._params_full}\n"
-                f"[dim]output:[/dim]\n    {self._output}\n"
+                f"[dim]params[/dim]\n{self._params_full}\n\n"
+                f"[dim]output[/dim]\n{self._output}\n\n"
                 f"[dim]elapsed:[/dim] {self._elapsed_ms}ms"
             )
             self.add_class("expanded")
+
+
+class ChatTextArea(TextArea):
+    """支持 Enter 提交、Cmd/Shift/Alt+Enter 换行的多行聊天输入框。"""
+
+    DEFAULT_CSS = """
+    ChatTextArea {
+        height: auto;
+        min-height: 3;
+        max-height: 12;
+        border: round $surface-lighten-2;
+        background: $background;
+        padding: 0 1;
+        margin: 1 2;
+        scrollbar-size-vertical: 1;
+    }
+    ChatTextArea:focus {
+        border: round $accent;
+        background: $background;
+    }
+    """
+
+    # 子类自定义的提交消息，供宿主 App 监听
+    class Submitted(Message):
+        def __init__(self, area: ChatTextArea) -> None:
+            self.text_area = area
+            self.value = area.text
+            super().__init__()
+
+    # Enter 提交；Cmd/Shift/Alt+Enter 插入换行；其余键交回 TextArea 默认行为
+    async def _on_key(self, event: events.Key) -> None:
+        key = event.key
+        if key == "enter":
+            event.stop()
+            event.prevent_default()
+            if self.text.strip():
+                self.post_message(self.Submitted(self))
+            return
+        if key in ("alt+enter", "shift+enter", "ctrl+j", "super+enter"):
+            event.stop()
+            event.prevent_default()
+            if not self.read_only:
+                self.insert("\n")
+            return
+        await super()._on_key(event)
 
 
 class MiniTuiApp(App[None]):
@@ -107,20 +185,23 @@ class MiniTuiApp(App[None]):
 
     TITLE = "MiniClaude"
     BINDINGS = [
-        Binding("q", "quit", "quit"),
+        Binding("ctrl+q", "quit", "quit"),
     ]
     CSS = """
     Screen { background: $background; }
     #header {
         height: 1;
-        background: $primary;
+        background: $surface;
         color: $text;
         padding: 0 1;
     }
     #log-view {
         height: 1fr;
+        scrollbar-size-vertical: 1;
+        scrollbar-size-horizontal: 1;
     }
-    Static.run-header { color: cyan; padding: 1 2 0 2; }
+    Static.user-turn { color: $text; padding: 1 2 0 2; }
+    Static.run-header { color: $text-muted; padding: 1 2 0 2; }
     Static.step-divider { color: $text-muted; padding: 0 2; }
     Static.run-ok { color: green; padding: 0 2 1 2; }
     Static.run-err { color: red; padding: 0 2 1 2; }
@@ -137,13 +218,55 @@ class MiniTuiApp(App[None]):
         self._client: SocketClient | None = None
         self._current_llm: LLMStreamBlock | None = None
         self._pending_tool_blocks: dict[str, ToolCallBlock] = {}
+        self._session_id: str | None = None
+        self._busy = False
 
     def compose(self) -> ComposeResult:
         yield Label("[bold]MiniClaude[/bold]  [dim]connecting...[/dim]", id="header")
         yield VerticalScroll(id="log-view")
+        yield ChatTextArea(id="prompt", show_line_numbers=False)
 
     def on_mount(self) -> None:
         self.run_worker(self._socket_loop(), exclusive=True, name="socket")
+        prompt = self.query_one("#prompt", ChatTextArea)
+        prompt.disabled = True
+        prompt.border_title = "connecting..."
+
+    # 退出前尽力关闭当前 session，失败也不阻塞 TUI 退出
+    async def action_quit(self) -> None:
+        if self._client is not None and self._session_id is not None:
+            try:
+                await self._client.send_command("session.close", {"session_id": self._session_id})
+            except (IpcError, RuntimeError, OSError):
+                self._append(Static("[yellow]warning: failed to close session[/yellow]"))
+        self.exit()
+
+    # 将输入框提交内容发送给当前 chat session
+    async def on_chat_text_area_submitted(self, event: ChatTextArea.Submitted) -> None:
+        content = event.value.strip()
+        if not content:
+            return
+        if self._client is None or self._session_id is None or self._busy:
+            self._append(Static("[yellow]agent busy or disconnected[/yellow]", classes="log-line"))
+            return
+        self._busy = True
+        prompt = event.text_area
+        prompt.text = ""
+        prompt.disabled = True
+        prompt.border_title = "agent is working..."
+        self._append(Static(f"[bold]>[/bold] {content}", classes="user-turn"))
+        self._update_header("running")
+        try:
+            await self._client.send_command(
+                "session.send_message",
+                {"session_id": self._session_id, "content": content},
+            )
+        except IpcError as e:
+            self._busy = False
+            prompt.disabled = False
+            prompt.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+            self._update_header("ready")
+            self._append(Static(f"[red]send error: {e}[/red]", classes="log-line"))
 
     # 向日志视图追加一个 widget 并滚动到底部
     def _append(self, widget: Widget) -> None:
@@ -153,7 +276,34 @@ class MiniTuiApp(App[None]):
 
     # 结束当前 LLM 流式块（下一个 token 将开启新块）
     def _break_llm(self) -> None:
+        if self._current_llm is not None:
+            self._current_llm.finalize_markdown()
         self._current_llm = None
+
+    # 安全获取输入框，便于组件测试中未挂载时跳过 UI 操作
+    def _prompt(self) -> ChatTextArea | None:
+        try:
+            return self.query_one("#prompt", ChatTextArea)
+        except NoMatches:
+            return None
+
+    # 根据连接和运行状态刷新顶部标题
+    def _update_header(self, state: str) -> None:
+        try:
+            header = self.query_one("#header", Label)
+        except NoMatches:
+            return
+        session = f"  [dim]{self._session_id}[/dim]" if self._session_id else ""
+        color = {
+            "ready": "green",
+            "running": "yellow",
+            "disconnected": "red",
+            "connecting": "dim",
+        }.get(state, "dim")
+        header.update(
+            f"[bold]MiniClaude[/bold]  [dim]{self._host}:{self._port}[/dim]"
+            f"{session}  [{color}]{state}[/{color}]"
+        )
 
     # 管理 SocketClient 生命周期：连接、订阅事件、断线重连
     async def _socket_loop(self) -> None:
@@ -165,14 +315,12 @@ class MiniTuiApp(App[None]):
             try:
                 await client.connect()
             except (ConnectionRefusedError, OSError):
-                header.update("[bold]MiniClaude[/bold]  [red]not connected — retrying...[/red]")
+                self._update_header("disconnected")
                 await asyncio.sleep(2)
                 continue
 
             self._client = client
-            header.update(
-                f"[bold]MiniClaude[/bold]  [dim]{self._host}:{self._port}[/dim]"
-            )
+            self._update_header("connecting")
             loop_task = asyncio.create_task(client.run_event_loop())
 
             async def on_event(event: dict[str, Any]) -> None:
@@ -182,12 +330,28 @@ class MiniTuiApp(App[None]):
 
             try:
                 params: dict[str, Any] = {
-                    "topics": ["run.*", "step.*", "tool.*", "llm.token", "llm.usage", "log.*"],
+                    "topics": [
+                        "session.*",
+                        "run.*",
+                        "step.*",
+                        "tool.*",
+                        "llm.token",
+                        "llm.usage",
+                        "log.*",
+                    ],
                     "scope": "global",
                 }
                 if self._replay_run_id is not None:
                     params["replay_from_run"] = self._replay_run_id
                 await client.send_command("event.subscribe", params)
+                created = await client.send_command("session.create", {"mode": "chat"})
+                self._session_id = str(created["session_id"])
+                prompt = self._prompt()
+                if prompt is not None:
+                    prompt.disabled = False
+                    prompt.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                    prompt.focus()
+                self._update_header("ready")
                 await loop_task
             except IpcError as e:
                 header.update(f"[bold]MiniClaude[/bold]  [red]subscribe error: {e}[/red]")
@@ -195,10 +359,15 @@ class MiniTuiApp(App[None]):
                 if not loop_task.done():
                     loop_task.cancel()
                 self._client = None
+                self._session_id = None
+                prompt = self._prompt()
+                if prompt is not None:
+                    prompt.disabled = True
+                    prompt.border_title = "disconnected, retrying..."
                 self._break_llm()
                 await client.close()
 
-            header.update("[bold]MiniClaude[/bold]  [dim]disconnected — retrying...[/dim]")
+            self._update_header("disconnected")
             await asyncio.sleep(2)
 
     # 根据事件 type 路由到对应渲染逻辑
@@ -216,19 +385,35 @@ class MiniTuiApp(App[None]):
 
         self._break_llm()
 
-        if t == "run.started":
+        if t == "session.waiting_for_input":
+            self._busy = False
+            prompt = self._prompt()
+            if prompt is not None:
+                prompt.disabled = False
+                prompt.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+                prompt.focus()
+            self._update_header("ready")
+
+        elif t == "session.closed":
+            self._busy = False
+            prompt = self._prompt()
+            if prompt is not None:
+                prompt.disabled = True
+                prompt.border_title = "session closed"
+            self._update_header("disconnected")
+
+        elif t == "run.started":
             run_id = event.get("run_id", "")
             goal = event.get("goal", "")
             self._append(Static(
-                f"[bold cyan]▶ run[/bold cyan]  [dim]{run_id}[/dim]\n"
-                f"  [dim]goal:[/dim] {goal}",
+                f"[dim]run[/dim]  [cyan]{run_id}[/cyan]  [dim]{_preview(goal, 96)}[/dim]",
                 classes="run-header",
             ))
 
         elif t == "step.started":
             step = event.get("step", "")
             self._append(Static(
-                f"[dim]── step {step} {'─' * 48}[/dim]",
+                f"[dim]step {step}[/dim]",
                 classes="step-divider",
             ))
 
