@@ -1050,9 +1050,10 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 | `run_id` | `string` | yes |
 | `tool_use_id` | `string` | yes |
 | `tool_name` | `string` | yes |
-| `error_type` | `string` | yes |
+| `error_class` | `string` | yes |
 | `error_message` | `string` | yes |
 | `elapsed_ms` | `integer` | yes |
+| `attempt` | `integer` | no |
 | `ts` | `string` | yes |
 
 ```json
@@ -1076,8 +1077,8 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
       "title": "Tool Name",
       "type": "string"
     },
-    "error_type": {
-      "title": "Error Type",
+    "error_class": {
+      "title": "Error Class",
       "type": "string"
     },
     "error_message": {
@@ -1086,6 +1087,11 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     },
     "elapsed_ms": {
       "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "attempt": {
+      "default": 1,
+      "title": "Attempt",
       "type": "integer"
     },
     "ts": {
@@ -1097,7 +1103,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "run_id",
     "tool_use_id",
     "tool_name",
-    "error_type",
+    "error_class",
     "error_message",
     "elapsed_ms",
     "ts"
@@ -1115,9 +1121,10 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
   "run_id": "20260516-100000-abc123",
   "tool_use_id": "toolu_02",
   "tool_name": "read_file",
-  "error_type": "runtime_error",
+  "error_class": "runtime_error",
   "error_message": "file not found",
   "elapsed_ms": 1,
+  "attempt": 1,
   "ts": "2026-05-16T10:00:00.001Z"
 }
 ```

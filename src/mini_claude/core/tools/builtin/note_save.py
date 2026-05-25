@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+from pydantic import BaseModel, ConfigDict
+
 from mini_claude.core.session.store import SessionStore
 from mini_claude.core.tools.base import BaseTool, ToolResult
 
 
+class NoteSaveParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    content: str
+
+
 class NoteSaveTool(BaseTool):
+    params_model = NoteSaveParams
     name = "note_save"
     description = (
         "Save a concise fact or decision to this session's notes. "
@@ -29,7 +37,7 @@ class NoteSaveTool(BaseTool):
 
     # 将非空 content 追加到 session notes.md
     async def invoke(self, params: dict[str, object]) -> ToolResult:
-        content = str(params.get("content", "")).strip()
+        content = NoteSaveParams.model_validate(params).content.strip()
         if not content:
             return ToolResult(
                 content="empty content",

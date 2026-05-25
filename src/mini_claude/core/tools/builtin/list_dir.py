@@ -2,13 +2,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from mini_claude.core.tools.base import BaseTool, ToolResult
 
 _MAX_DEPTH = 4
 _MAX_ENTRIES = 200
 
 
+class ListDirParams(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    path: str = "."
+    max_depth: int = Field(default=2, ge=1, le=_MAX_DEPTH)
+
+
 class ListDirTool(BaseTool):
+    params_model = ListDirParams
     name = "list_dir"
     description = (
         "List the contents of a directory as a tree. "
@@ -33,8 +42,9 @@ class ListDirTool(BaseTool):
 
     # 以树状格式列出目录内容，深度和条数有上限
     async def invoke(self, params: dict[str, object]) -> ToolResult:
-        path_str = str(params.get("path") or ".")
-        max_depth = min(int(str(params.get("max_depth") or 2)), _MAX_DEPTH)
+        p = ListDirParams.model_validate(params)
+        path_str = p.path
+        max_depth = p.max_depth
 
         if ".." in Path(path_str).parts:
             raise PermissionError(f"path traversal not allowed: {path_str}")

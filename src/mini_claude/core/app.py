@@ -19,6 +19,8 @@ from mini_claude.core.bus.commands import (
     AgentRunResult,
     EventSubscribeCommand,
     EventSubscribeResult,
+    PermissionRespondCommand,
+    PermissionRespondResult,
     PongResult,
     SessionCloseCommand,
     SessionCloseResult,
@@ -33,6 +35,8 @@ from mini_claude.core.bus.envelope import EventPushEnvelope
 from mini_claude.core.config import MiniConfig, get_config
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.logging_setup import setup_logging
+from mini_claude.core.permissions.manager import PermissionManager
+from mini_claude.core.permissions.storage import load_policy_file
 from mini_claude.core.runner import AgentRunner
 from mini_claude.core.runs import events_file, new_run_id
 from mini_claude.core.session import SessionManager, SessionStore
@@ -57,6 +61,7 @@ class CoreApp:
         self._config: MiniConfig | None = None
         self._running_runs: set[asyncio.Task[Any]] = set()
         self._sessions: SessionManager | None = None
+        self._permission_manager: PermissionManager | None = None
 
     # 处理 core.ping 请求，返回服务版本、运行时长和接收时间
     async def _ping_handler(self, params: dict[str, Any]) -> PongResult:
@@ -116,6 +121,16 @@ class CoreApp:
         cmd = SessionGetHistoryCommand.model_validate(params)
         messages = await self._sessions.get_history(cmd.session_id)
         return SessionGetHistoryResult(messages=messages)
+
+    # 接收客户端权限审批响应，resolve 对应挂起的 Future
+    async def _permission_respond_handler(self, params: dict[str, Any]) -> PermissionRespondResult:
+        cmd = PermissionRespondCommand.model_validate(params)
+        logger.info("permission.respond received tool_use_id=%s decision=%s", cmd.tool_use_id, cmd.decision)
+        if self._permission_manager is None:
+            logger.error("permission.respond: PermissionManager not initialized")
+            return PermissionRespondResult()
+        self._permission_manager.respond(cmd.tool_use_id, cmd.decision)
+        return PermissionRespondResult()
 
     # 关闭 session 并返回 closed 状态
     async def _session_close_handler(self, params: dict[str, Any]) -> SessionCloseResult:
@@ -187,13 +202,29 @@ class CoreApp:
             await self._trace.start()
             self._bus.subscribe(self._trace_event_handler)
 
+        policy_file = Path("~/.mini/policy.toml").expanduser()
+        self._permission_manager = PermissionManager(
+            policy_file=policy_file,
+            timeout_s=self._config.permission.timeout_s,
+        )
+        logger.info(
+            "permission manager: timeout_s=%.1f  persistent=%d entries",
+            self._config.permission.timeout_s,
+            len(load_policy_file(policy_file)),
+        )
+
         self._broadcaster = IpcEventBroadcaster(trace=self._trace)
         self._bus.subscribe(self._broadcaster.handle)
         sessions_root = Path("~/.mini/sessions").expanduser()
         store = SessionStore(sessions_root)
         self._sessions = SessionManager(
             store,
-            runner_factory=lambda: AgentRunner(self._config, bus=self._bus, trace=self._trace),  # type: ignore[arg-type]
+            runner_factory=lambda: AgentRunner(  # type: ignore[arg-type]
+                self._config,
+                bus=self._bus,
+                trace=self._trace,
+                permission_manager=self._permission_manager,
+            ),
             bus=self._bus,
         )
 
@@ -210,6 +241,7 @@ class CoreApp:
         server.register("session.send_message", self._session_send_handler)
         server.register("session.get_history", self._session_history_handler)
         server.register("session.close", self._session_close_handler)
+        server.register("permission.respond", self._permission_respond_handler)
 
         addr = await server.start()
         logger.info("mini-core %s listening addr=%s", mini_claude.__version__, addr)

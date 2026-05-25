@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from mini_claude.core.bus.events import StepFinishedEvent, StepStartedEvent
 from mini_claude.core.context import ExecutionContext
@@ -10,22 +11,30 @@ from mini_claude.core.llm.base import LLMProvider
 from mini_claude.core.tools.invocation import invoke_tool
 from mini_claude.core.tools.registry import ToolRegistry
 
+if TYPE_CHECKING:
+    from mini_claude.core.permissions.manager import PermissionManager
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
 class AgentLoop:
-    # 初始化循环所需的三个依赖：LLM provider、工具注册表、事件总线
+    # 初始化循环所需依赖：LLM provider、工具注册表、事件总线，以及可选的权限管理器和 session ID
     def __init__(
         self,
         provider: LLMProvider,
         registry: ToolRegistry,
         bus: EventBus,
+        *,
+        permission_manager: PermissionManager | None = None,
+        session_id: str = "",
     ) -> None:
         self._provider = provider
         self._registry = registry
         self._bus = bus
+        self._permission_manager = permission_manager
+        self._session_id = session_id
 
     # 驱动 plan→act→observe 循环直到上下文终止；CancelledError 向上传播
     async def run(self, context: ExecutionContext) -> None:
@@ -71,7 +80,9 @@ class AgentLoop:
             if response.stop_reason == "tool_use":
                 for tc in response.tool_calls:
                     result = await invoke_tool(
-                        self._registry, tc, self._bus, context.run_id
+                        self._registry, tc, self._bus, context.run_id,
+                        permission_manager=self._permission_manager,
+                        session_id=self._session_id,
                     )
                     context.add_tool_result(tc.id, result.content, is_error=result.is_error)
 
