@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ from mini_claude.core.events.writer import EventWriter
 from mini_claude.core.llm.base import LLMProvider
 from mini_claude.core.llm.provider import AnthropicProvider
 from mini_claude.core.loop import AgentLoop
+from mini_claude.core.permissions.manager import PermissionManager
 from mini_claude.core.runs import RUNS_DIR, new_run_id
 from mini_claude.core.session.model import Session
 from mini_claude.core.session.store import SessionStore
@@ -55,6 +57,7 @@ class AgentRunner:
         extra_handlers: list[EventHandler] | None = None,
         runs_dir: Path | None = None,
         trace: TraceWriter | None = None,
+        permission_manager: PermissionManager | None = None,
     ) -> None:
         self._config = config
         self._bus = bus
@@ -62,6 +65,7 @@ class AgentRunner:
         self._extra_handlers: list[EventHandler] = extra_handlers or []
         self._runs_dir = runs_dir or RUNS_DIR
         self._trace = trace
+        self._permission_manager = permission_manager
 
     # 构建工具注册表，注入 TaskManager（任务工具共享同一实例）
     def _build_registry(
@@ -146,13 +150,20 @@ class AgentRunner:
                         self._trace,
                         include_payload=self._config.trace.include_llm_payload,
                     )
-                loop = AgentLoop(provider, registry, bus)
+                loop = AgentLoop(
+                    provider, registry, bus,
+                    permission_manager=self._permission_manager,
+                    session_id=session.id if session is not None else "",
+                )
                 await loop.run(context)
             except asyncio.CancelledError:
                 cancelled = True
                 if not context.is_done():
                     context.mark_failed("cancelled")
             except Exception:
+                logging.getLogger(__name__).exception(
+                    "agent run failed run_id=%s step=%d", run_id, context.step
+                )
                 if not context.is_done():
                     context.mark_failed("llm_error")
 

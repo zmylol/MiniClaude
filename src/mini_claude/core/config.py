@@ -45,6 +45,11 @@ class TraceConfig:
 
 
 @dataclass
+class PermissionConfig:
+    timeout_s: float = 60.0  # 审批超时秒数；0 表示不超时
+
+
+@dataclass
 class MiniConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -52,6 +57,7 @@ class MiniConfig:
     agent: AgentConfig = field(default_factory=AgentConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
+    permission: PermissionConfig = field(default_factory=PermissionConfig)
 
 
 # 构建并返回运行时配置：默认值 → TOML → .env → 系统环境变量（后者优先级最高）
@@ -77,7 +83,7 @@ def get_config() -> MiniConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace"}
+    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission"}
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -167,6 +173,19 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
                 raise SystemExit("Config error: trace.include_llm_payload must be a boolean")
             config.trace.include_llm_payload = val
 
+    if "permission" in data:
+        perm = data["permission"]
+        if not isinstance(perm, dict):
+            raise SystemExit("Config error: [permission] must be a table")
+        unknown_perm: set[str] = set(perm.keys()) - {"timeout_s"}
+        if unknown_perm:
+            raise SystemExit(f"Unknown [permission] keys: {', '.join(sorted(unknown_perm))}")
+        if "timeout_s" in perm:
+            val = perm["timeout_s"]
+            if not isinstance(val, (int, float)) or val < 0:
+                raise SystemExit("Config error: permission.timeout_s must be a non-negative number")
+            config.permission.timeout_s = float(val)
+
 
 # 用 MINI_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: MiniConfig) -> None:
@@ -223,3 +242,17 @@ def _apply_env(config: MiniConfig) -> None:
     trace_payload = os.environ.get("MINI_TRACE_INCLUDE_LLM_PAYLOAD")
     if trace_payload is not None:
         config.trace.include_llm_payload = trace_payload.lower() not in ("0", "false", "no")
+
+    perm_timeout = os.environ.get("MINI_PERMISSION_TIMEOUT_S")
+    if perm_timeout is not None:
+        try:
+            val = float(perm_timeout)
+            if val < 0:
+                raise SystemExit(
+                    f"Config error: MINI_PERMISSION_TIMEOUT_S must be >= 0, got: {perm_timeout!r}"
+                )
+            config.permission.timeout_s = val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: MINI_PERMISSION_TIMEOUT_S must be a number, got: {perm_timeout!r}"
+            )

@@ -104,7 +104,7 @@ class SocketServer:
             writer.close()
             try:
                 await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
-            except TimeoutError:
+            except (TimeoutError, ConnectionResetError, BrokenPipeError, OSError):
                 pass
             logger.debug("client disconnected: %s", peer)
 
@@ -124,7 +124,9 @@ class SocketServer:
             if not line:
                 return
 
-            await self._handle_line(line, writer)
+            # 每条命令独立作为 task 执行，避免长时间运行的 handler（如 session.send_message）
+            # 阻塞读循环，使 permission.respond 等并发命令能被及时处理
+            asyncio.create_task(self._handle_line(line, writer))
 
     # 解析单行 JSON-RPC 请求并调用对应 handler，将结果或错误写回客户端
     async def _handle_line(self, line: bytes, writer: asyncio.StreamWriter) -> None:
@@ -179,7 +181,10 @@ class SocketServer:
             return
 
         result_data: Any = result.model_dump() if isinstance(result, BaseModel) else result
-        await self._send(writer, JsonRpcSuccess(id=req.id, result=result_data))
+        try:
+            await self._send(writer, JsonRpcSuccess(id=req.id, result=result_data))
+        except (ConnectionResetError, BrokenPipeError, OSError):
+            logger.debug("client disconnected before response for %s", req.method)
 
     # 将 pydantic 消息序列化为 JSON 行并写入流，随后刷新缓冲区
     async def _send(self, writer: asyncio.StreamWriter, msg: BaseModel) -> None:
