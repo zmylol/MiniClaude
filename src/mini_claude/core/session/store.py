@@ -103,7 +103,9 @@ class SessionStore:
                 continue
             messages.append({"role": role, "content": row.get("content", "")})
 
-        return self._trim_orphan_tool_use(messages)
+        messages = self._trim_orphan_tool_use(messages)
+        from mini_claude.core.compact.budget import truncate_tool_results
+        return truncate_tool_results(messages)
 
     # 裁掉尾部未配对 tool_use 以及其后的消息，避免 Anthropic messages.invalid
     def _trim_orphan_tool_use(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -126,6 +128,18 @@ class SessionStore:
             logger.warning("trim orphan tool_use blocks from thread")
             return messages[:last_balanced]
         return messages
+
+    # 将压缩后的消息对覆盖写入 thread.jsonl，原文件备份为 thread_<ts>.jsonl.bak
+    def write_compacted(self, sid: str, messages: list[dict[str, Any]]) -> None:
+        path = self.session_dir(sid) / "thread.jsonl"
+        ts_str = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        bak = self.session_dir(sid) / f"thread_{ts_str}.jsonl.bak"
+        if path.exists():
+            path.rename(bak)
+        with path.open("w", encoding="utf-8") as f:
+            for msg in messages:
+                row: dict[str, Any] = {"ts": _now(), "role": msg["role"], "content": msg["content"]}
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     # 读取 notes.md 全文，文件不存在时返回空字符串
     def read_notes(self, sid: str) -> str:
