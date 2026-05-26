@@ -50,6 +50,13 @@ class PermissionConfig:
 
 
 @dataclass
+class CompactionConfig:
+    auto_threshold: float = 0.0    # context_pct 触发自动压缩的阈值（0 表示禁用，推荐用手动 /compact）
+    tool_result_limit: int = 8_000  # tool_result 截断触发字符数
+    tool_result_keep: int = 4_000   # 截断后保留的前缀字符数
+
+
+@dataclass
 class MiniConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -58,6 +65,7 @@ class MiniConfig:
     llm: LlmConfig = field(default_factory=LlmConfig)
     trace: TraceConfig = field(default_factory=TraceConfig)
     permission: PermissionConfig = field(default_factory=PermissionConfig)
+    compaction: CompactionConfig = field(default_factory=CompactionConfig)
 
 
 # 构建并返回运行时配置：默认值 → TOML → .env → 系统环境变量（后者优先级最高）
@@ -83,7 +91,7 @@ def get_config() -> MiniConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission"}
+    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission", "compaction"}
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -186,6 +194,29 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
                 raise SystemExit("Config error: permission.timeout_s must be a non-negative number")
             config.permission.timeout_s = float(val)
 
+    if "compaction" in data:
+        comp = data["compaction"]
+        if not isinstance(comp, dict):
+            raise SystemExit("Config error: [compaction] must be a table")
+        unknown_comp: set[str] = set(comp.keys()) - {"auto_threshold", "tool_result_limit", "tool_result_keep"}
+        if unknown_comp:
+            raise SystemExit(f"Unknown [compaction] keys: {', '.join(sorted(unknown_comp))}")
+        if "auto_threshold" in comp:
+            val = comp["auto_threshold"]
+            if not isinstance(val, (int, float)) or not (0.0 <= val <= 1.0):
+                raise SystemExit("Config error: compaction.auto_threshold must be between 0 and 1")
+            config.compaction.auto_threshold = float(val)
+        if "tool_result_limit" in comp:
+            val = comp["tool_result_limit"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: compaction.tool_result_limit must be a positive integer")
+            config.compaction.tool_result_limit = val
+        if "tool_result_keep" in comp:
+            val = comp["tool_result_keep"]
+            if not isinstance(val, int) or val <= 0:
+                raise SystemExit("Config error: compaction.tool_result_keep must be a positive integer")
+            config.compaction.tool_result_keep = val
+
 
 # 用 MINI_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: MiniConfig) -> None:
@@ -246,13 +277,55 @@ def _apply_env(config: MiniConfig) -> None:
     perm_timeout = os.environ.get("MINI_PERMISSION_TIMEOUT_S")
     if perm_timeout is not None:
         try:
-            val = float(perm_timeout)
-            if val < 0:
+            perm_timeout_val = float(perm_timeout)
+            if perm_timeout_val < 0:
                 raise SystemExit(
                     f"Config error: MINI_PERMISSION_TIMEOUT_S must be >= 0, got: {perm_timeout!r}"
                 )
-            config.permission.timeout_s = val
+            config.permission.timeout_s = perm_timeout_val
         except ValueError:
             raise SystemExit(
                 f"Config error: MINI_PERMISSION_TIMEOUT_S must be a number, got: {perm_timeout!r}"
+            )
+
+    compact_threshold = os.environ.get("MINI_COMPACT_THRESHOLD")
+    if compact_threshold is not None:
+        try:
+            compact_threshold_val = float(compact_threshold)
+            if not (0.0 <= compact_threshold_val <= 1.0):
+                raise SystemExit(
+                    f"Config error: MINI_COMPACT_THRESHOLD must be between 0 and 1, got: {compact_threshold!r}"
+                )
+            config.compaction.auto_threshold = compact_threshold_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: MINI_COMPACT_THRESHOLD must be a number, got: {compact_threshold!r}"
+            )
+
+    compact_tool_limit = os.environ.get("MINI_COMPACT_TOOL_LIMIT")
+    if compact_tool_limit is not None:
+        try:
+            compact_tool_limit_val = int(compact_tool_limit)
+            if compact_tool_limit_val <= 0:
+                raise SystemExit(
+                    f"Config error: MINI_COMPACT_TOOL_LIMIT must be a positive integer, got: {compact_tool_limit!r}"
+                )
+            config.compaction.tool_result_limit = compact_tool_limit_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: MINI_COMPACT_TOOL_LIMIT must be an integer, got: {compact_tool_limit!r}"
+            )
+
+    compact_tool_keep = os.environ.get("MINI_COMPACT_TOOL_KEEP")
+    if compact_tool_keep is not None:
+        try:
+            compact_tool_keep_val = int(compact_tool_keep)
+            if compact_tool_keep_val <= 0:
+                raise SystemExit(
+                    f"Config error: MINI_COMPACT_TOOL_KEEP must be a positive integer, got: {compact_tool_keep!r}"
+                )
+            config.compaction.tool_result_keep = compact_tool_keep_val
+        except ValueError:
+            raise SystemExit(
+                f"Config error: MINI_COMPACT_TOOL_KEEP must be an integer, got: {compact_tool_keep!r}"
             )

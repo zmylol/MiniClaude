@@ -24,6 +24,8 @@ from mini_claude.core.bus.commands import (
     PongResult,
     SessionCloseCommand,
     SessionCloseResult,
+    SessionCompactCommand,
+    SessionCompactResult,
     SessionCreateCommand,
     SessionCreateResult,
     SessionGetHistoryCommand,
@@ -34,6 +36,7 @@ from mini_claude.core.bus.commands import (
 from mini_claude.core.bus.envelope import EventPushEnvelope
 from mini_claude.core.config import MiniConfig, get_config
 from mini_claude.core.events.bus import EventBus
+from mini_claude.core.llm.provider import AnthropicProvider
 from mini_claude.core.logging_setup import setup_logging
 from mini_claude.core.permissions.manager import PermissionManager
 from mini_claude.core.permissions.storage import load_policy_file
@@ -132,6 +135,13 @@ class CoreApp:
         self._permission_manager.respond(cmd.tool_use_id, cmd.decision)
         return PermissionRespondResult()
 
+    # 手动压缩 session thread，将摘要持久化写入 thread.jsonl
+    async def _session_compact_handler(self, params: dict[str, Any]) -> SessionCompactResult:
+        assert self._sessions is not None
+        cmd = SessionCompactCommand.model_validate(params)
+        result = await self._sessions.compact(cmd.session_id, cmd.focus)
+        return result  # type: ignore[no-any-return]
+
     # 关闭 session 并返回 closed 状态
     async def _session_close_handler(self, params: dict[str, Any]) -> SessionCloseResult:
         assert self._sessions is not None
@@ -217,15 +227,18 @@ class CoreApp:
         self._bus.subscribe(self._broadcaster.handle)
         sessions_root = Path("~/.mini/sessions").expanduser()
         store = SessionStore(sessions_root)
+        assert self._config is not None
+        compact_provider = AnthropicProvider(self._config.llm.default_model)
         self._sessions = SessionManager(
             store,
-            runner_factory=lambda: AgentRunner(  # type: ignore[arg-type]
-                self._config,
+            runner_factory=lambda: AgentRunner(
+                self._config,  # type: ignore[arg-type]
                 bus=self._bus,
                 trace=self._trace,
                 permission_manager=self._permission_manager,
             ),
             bus=self._bus,
+            provider=compact_provider,
         )
 
         server = SocketServer(
@@ -242,6 +255,7 @@ class CoreApp:
         server.register("session.get_history", self._session_history_handler)
         server.register("session.close", self._session_close_handler)
         server.register("permission.respond", self._permission_respond_handler)
+        server.register("session.compact", self._session_compact_handler)
 
         addr = await server.start()
         logger.info("mini-core %s listening addr=%s", mini_claude.__version__, addr)

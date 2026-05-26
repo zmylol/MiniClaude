@@ -10,11 +10,11 @@ log = logging.getLogger(__name__)
 from rich.markdown import Markdown
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.widget import Widget
-from textual.binding import Binding
 from textual.widgets import Label, Static, TextArea
 
 from mini_claude.core.config import MiniConfig
@@ -376,6 +376,7 @@ class MiniTuiApp(App[None]):
         self._pending_permission_blocks: dict[str, PermissionBlock] = {}
         self._session_id: str | None = None
         self._busy = False
+        self._last_context_pct: float = 0.0
 
     def compose(self) -> ComposeResult:
         yield Label("[bold]MiniClaude[/bold]  [dim]connecting...[/dim]", id="header")
@@ -430,6 +431,12 @@ class MiniTuiApp(App[None]):
         content = event.value.strip()
         if not content:
             return
+        # 检测 /compact 指令
+        if content == "/compact":
+            event.text_area.text = ""
+            if self._client is not None and self._session_id is not None and not self._busy:
+                self.run_worker(self._do_compact(), name="compact", exclusive=False)
+            return
         if self._client is None or self._session_id is None or self._busy:
             self._append(Static("[yellow]agent busy or disconnected[/yellow]", classes="log-line"))
             return
@@ -442,6 +449,27 @@ class MiniTuiApp(App[None]):
         self._append(Static(f"[bold]>[/bold] {content}", classes="user-turn"))
         self._update_header("running")
         self.run_worker(self._do_send_message(content), name="send_message", exclusive=False)
+
+    # 在 worker 中执行手动压缩命令，完成后显示结果横幅
+    async def _do_compact(self) -> None:
+        if self._client is None or self._session_id is None:
+            return
+        self._append(Static("[dim]⚡ compacting context...[/dim]", classes="log-line"))
+        try:
+            result = await self._client.send_command(
+                "session.compact",
+                {"session_id": self._session_id, "focus": ""},
+            )
+            summary_tokens = result.get("summary_tokens", 0)
+            saved_tokens = result.get("saved_tokens", 0)
+            self._last_context_pct = 0.0
+            self._append(Static(
+                f"[bold cyan]⚡ Context compacted[/bold cyan]"
+                f"  [dim]summary={summary_tokens} tokens  saved≈{saved_tokens} tokens[/dim]",
+                classes="log-line",
+            ))
+        except (IpcError, RuntimeError, OSError) as e:
+            self._append(Static(f"[red]compact error: {e}[/red]", classes="log-line"))
 
     # 在 worker 中执行 IPC 发送，使 App 消息泵在 agent 运行期间仍能处理键盘/焦点等消息
     async def _do_send_message(self, content: str) -> None:
@@ -513,6 +541,19 @@ class MiniTuiApp(App[None]):
         except Exception:
             return None
 
+    # 生成 context 占用率的彩色进度条字符串
+    def _render_ctx_bar(self, pct: float) -> str:
+        filled = int(pct * 20)
+        bar = "█" * filled + "░" * (20 - filled)
+        label = f"ctx:{pct * 100:.1f}%"
+        if pct >= 0.85:
+            color = "bold red"
+        elif pct >= 0.70:
+            color = "yellow"
+        else:
+            color = "dim"
+        return f"[{color}]{label} {bar}[/{color}]"
+
     # 根据连接和运行状态刷新顶部标题
     def _update_header(self, state: str) -> None:
         try:
@@ -572,6 +613,7 @@ class MiniTuiApp(App[None]):
                         "llm.usage",
                         "log.*",
                         "permission.*",
+                        "context.*",
                     ],
                     "scope": "global",
                 }
@@ -704,12 +746,26 @@ class MiniTuiApp(App[None]):
                 ))
 
         elif t == "llm.usage":
+            pct = float(event.get("context_pct") or 0.0)
+            self._last_context_pct = pct
+            ctx_bar = self._render_ctx_bar(pct)
             self._append(Static(
                 f"[dim]  tokens  "
                 f"in={event.get('input_tokens')} "
                 f"out={event.get('output_tokens')} "
-                f"cache={event.get('cache_read_input_tokens')}[/dim]",
+                f"cache={event.get('cache_read_input_tokens')}[/dim]"
+                f"  {ctx_bar}",
                 classes="usage",
+            ))
+
+        elif t == "context.compacted":
+            orig = event.get("original_tokens", 0)
+            summary = event.get("summary_tokens", 0)
+            self._last_context_pct = 0.0
+            self._append(Static(
+                f"[bold cyan]⚡ Context compacted[/bold cyan]"
+                f"  [dim]original≈{orig} tokens → summary={summary} tokens[/dim]",
+                classes="log-line",
             ))
 
         elif t == "permission.requested":
@@ -740,9 +796,8 @@ class MiniTuiApp(App[None]):
             tool_use_id = str(event.get("tool_use_id", ""))
             decision = str(event.get("decision", "denied"))
             if tool_use_id in self._pending_permission_blocks:
-                perm_block = self._pending_permission_blocks.pop(tool_use_id, None)
-                if perm_block is not None:
-                    perm_block._resolve(decision)
+                perm_block = self._pending_permission_blocks.pop(tool_use_id)
+                perm_block._resolve(decision)
                 try:
                     select = self.query_one(PermissionSelect)
                     select.remove()
