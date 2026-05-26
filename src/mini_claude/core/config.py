@@ -57,6 +57,22 @@ class CompactionConfig:
 
 
 @dataclass
+class McpServerConfig:
+    name: str
+    transport: str = "stdio"       # "stdio" | "tcp"
+    command: str = ""              # stdio 专用：可执行文件路径
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    host: str = "localhost"        # tcp 专用
+    port: int = 3000               # tcp 专用
+
+
+@dataclass
+class McpConfig:
+    servers: list[McpServerConfig] = field(default_factory=list)
+
+
+@dataclass
 class MiniConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -66,6 +82,7 @@ class MiniConfig:
     trace: TraceConfig = field(default_factory=TraceConfig)
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
+    mcp: McpConfig = field(default_factory=McpConfig)
 
 
 # 构建并返回运行时配置：默认值 → TOML → .env → 系统环境变量（后者优先级最高）
@@ -91,7 +108,7 @@ def get_config() -> MiniConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission", "compaction"}
+    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp"}
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -216,6 +233,53 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
             if not isinstance(val, int) or val <= 0:
                 raise SystemExit("Config error: compaction.tool_result_keep must be a positive integer")
             config.compaction.tool_result_keep = val
+
+    if "mcp" in data:
+        mcp = data["mcp"]
+        if not isinstance(mcp, dict):
+            raise SystemExit("Config error: [mcp] must be a table")
+        unknown_mcp: set[str] = set(mcp.keys()) - {"servers"}
+        if unknown_mcp:
+            raise SystemExit(f"Unknown [mcp] keys: {', '.join(sorted(unknown_mcp))}")
+        servers_raw = mcp.get("servers", [])
+        if not isinstance(servers_raw, list):
+            raise SystemExit("Config error: mcp.servers must be an array of tables")
+        for i, srv in enumerate(servers_raw):
+            if not isinstance(srv, dict):
+                raise SystemExit(f"Config error: mcp.servers[{i}] must be a table")
+            name = srv.get("name")
+            if not isinstance(name, str) or not name:
+                raise SystemExit(f"Config error: mcp.servers[{i}].name must be a non-empty string")
+            transport = srv.get("transport", "stdio")
+            if transport not in ("stdio", "tcp"):
+                raise SystemExit(f"Config error: mcp.servers[{i}].transport must be 'stdio' or 'tcp'")
+            s = McpServerConfig(name=name, transport=transport)
+            if "command" in srv:
+                val = srv["command"]
+                if not isinstance(val, str):
+                    raise SystemExit(f"Config error: mcp.servers[{i}].command must be a string")
+                s.command = val
+            if "args" in srv:
+                val = srv["args"]
+                if not isinstance(val, list):
+                    raise SystemExit(f"Config error: mcp.servers[{i}].args must be an array")
+                s.args = [str(a) for a in val]
+            if "env" in srv:
+                val = srv["env"]
+                if not isinstance(val, dict):
+                    raise SystemExit(f"Config error: mcp.servers[{i}].env must be a table")
+                s.env = {str(k): str(v) for k, v in val.items()}
+            if "host" in srv:
+                val = srv["host"]
+                if not isinstance(val, str):
+                    raise SystemExit(f"Config error: mcp.servers[{i}].host must be a string")
+                s.host = val
+            if "port" in srv:
+                val = srv["port"]
+                if not isinstance(val, int):
+                    raise SystemExit(f"Config error: mcp.servers[{i}].port must be an integer")
+                s.port = val
+            config.mcp.servers.append(s)
 
 
 # 用 MINI_* 环境变量覆盖 config 中对应字段（若变量已设置）

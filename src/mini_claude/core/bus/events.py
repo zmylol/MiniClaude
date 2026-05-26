@@ -179,6 +179,30 @@ class PermissionDeniedEvent(BaseModel):
     ts: str
 
 
+class SubagentStartedEvent(BaseModel):
+    type: Literal["subagent.started"] = "subagent.started"
+    run_id: str          # 子 agent run_id
+    parent_run_id: str
+    description: str
+    ts: str
+
+
+class SubagentFinishedEvent(BaseModel):
+    type: Literal["subagent.finished"] = "subagent.finished"
+    run_id: str
+    parent_run_id: str
+    status: str          # "success" | "failed"
+    ts: str
+
+
+class SkillInvokedEvent(BaseModel):
+    type: Literal["skill.invoked"] = "skill.invoked"
+    skill_name: str
+    arguments: str
+    run_id: str
+    ts: str
+
+
 # 根据 type 字段决定事件类型的判别联合
 Event = Annotated[
     CoreStartedEvent
@@ -201,6 +225,9 @@ Event = Annotated[
     | ContextCompactedEvent
     | PermissionRequestedEvent
     | PermissionGrantedEvent
-    | PermissionDeniedEvent,
+    | PermissionDeniedEvent
+    | SubagentStartedEvent
+    | SubagentFinishedEvent
+    | SkillInvokedEvent,
     Discriminator("type"),
 ]

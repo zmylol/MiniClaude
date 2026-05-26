@@ -1250,6 +1250,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 | `output_tokens` | `integer` | yes |
 | `cache_read_input_tokens` | `integer` | yes |
 | `cache_creation_input_tokens` | `integer` | yes |
+| `context_pct` | `number` | no |
 | `ts` | `string` | yes |
 
 ```json
@@ -1280,6 +1281,11 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "cache_creation_input_tokens": {
       "title": "Cache Creation Input Tokens",
       "type": "integer"
+    },
+    "context_pct": {
+      "default": 0.0,
+      "title": "Context Pct",
+      "type": "number"
     },
     "ts": {
       "title": "Ts",
