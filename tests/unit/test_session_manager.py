@@ -21,6 +21,8 @@ class _Runner:
         run_id: str | None = None,
         session: Session | None = None,
         store: SessionStore | None = None,
+        system_prompt_override: str | None = None,
+        tool_whitelist: list[str] | None = None,
     ) -> RunOutcome:
         assert run_id is not None
         assert session is not None

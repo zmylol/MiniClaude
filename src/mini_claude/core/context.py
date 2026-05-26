@@ -18,6 +18,8 @@ class ExecutionContext:
     status: str = "running"  # "running" | "success" | "failed"
     reason: str | None = None
     result: str = ""
+    # skill 或 subagent 角色可覆盖默认 system prompt
+    system_prompt_override: str | None = None
 
     # 初始化消息历史，优先使用 session 完整回放内容
     def __post_init__(self) -> None:
@@ -26,9 +28,9 @@ class ExecutionContext:
         elif not self.messages:
             self.messages.append({"role": "user", "content": self.goal})
 
-    # 返回当前 run 的 system prompt，依次注入 global / project / session 三层记忆
+    # 返回当前 run 的 system prompt；有 override 时跳过 base，直接注入记忆层
     def system_prompt(self, base: str) -> str:
-        parts = [base]
+        parts = [self.system_prompt_override if self.system_prompt_override else base]
         if self.global_context.strip():
             parts.append("\n\n## Global Context\n" + self.global_context.strip())
         if self.project_context.strip():
