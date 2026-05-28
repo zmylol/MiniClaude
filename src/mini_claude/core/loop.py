@@ -78,7 +78,8 @@ class AgentLoop:
                 break
 
             # [observe] append assistant content blocks to context
-            blocks: list[dict[str, object]] = []
+            # thinking blocks must come first and be preserved verbatim for extended thinking mode
+            blocks: list[dict[str, object]] = list(response.thinking_blocks)
             if response.text:
                 blocks.append({"type": "text", "text": response.text})
             for tc in response.tool_calls:
