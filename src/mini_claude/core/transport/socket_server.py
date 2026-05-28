@@ -41,7 +41,7 @@ def _now() -> str:
 def get_connection_writer() -> asyncio.StreamWriter:
     return _writer_var.get()
 
-_MAX_LINE_BYTES = 1 * 1024 * 1024  # 1 MB per frame
+_MAX_LINE_BYTES = 64 * 1024 * 1024  # 64 MB per frame，兼容 MCP 大文件工具结果
 
 
 class SocketServer:
@@ -58,6 +58,7 @@ class SocketServer:
         self._server: asyncio.AbstractServer | None = None
         self._broadcaster = broadcaster
         self._trace = trace
+        self._active_writers: set[asyncio.StreamWriter] = set()
 
     # 注册一个方法名对应的命令处理函数
     def register(self, method: str, handler: CommandHandler) -> None:
@@ -81,12 +82,20 @@ class SocketServer:
         )
         return f"{self._host}:{self._port}"
 
-    # 关闭服务器，最多等待 2 秒
+    # 关闭服务器：先断开所有活跃连接，再等待服务器完全关闭（最多 2 秒）
     async def stop(self) -> None:
         if self._server is None:
             return
+        for writer in list(self._active_writers):
+            try:
+                writer.close()
+            except Exception:
+                pass
         self._server.close()
-        await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+        try:
+            await asyncio.wait_for(self._server.wait_closed(), timeout=2.0)
+        except (TimeoutError, asyncio.CancelledError):
+            pass
 
     # 处理单个客户端连接，完成后关闭写流
     async def _handle_connection(
@@ -96,15 +105,16 @@ class SocketServer:
     ) -> None:
         peer = writer.get_extra_info("peername", "<unknown>")
         logger.debug("client connected: %s", peer)
+        self._active_writers.add(writer)
         try:
             await self._read_loop(reader, writer)
         finally:
+            self._active_writers.discard(writer)
             if self._broadcaster is not None:
                 self._broadcaster.unsubscribe(writer)
-            writer.close()
             try:
-                await asyncio.wait_for(writer.wait_closed(), timeout=1.0)
-            except (TimeoutError, ConnectionResetError, BrokenPipeError, OSError):
+                writer.close()
+            except Exception:
                 pass
             logger.debug("client disconnected: %s", peer)
 

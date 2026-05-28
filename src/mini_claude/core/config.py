@@ -85,22 +85,31 @@ class MiniConfig:
     mcp: McpConfig = field(default_factory=McpConfig)
 
 
-# 构建并返回运行时配置：默认值 → TOML → .env → 系统环境变量（后者优先级最高）
+# 构建并返回运行时配置：默认值 → 全局 TOML → 项目本地 TOML → .env → 系统环境变量（后者优先级最高）
 def get_config() -> MiniConfig:
     config = MiniConfig()
 
     # .env 必须在读取 MINI_CONFIG 之前加载，以便 .env 中的 MINI_CONFIG 能影响 TOML 路径
     load_dotenv(".env", override=False)
 
-    config_path = Path(os.environ.get("MINI_CONFIG", _DEFAULT_CONFIG_PATH)).expanduser()
+    # 若显式指定 MINI_CONFIG，只读该文件；否则按优先级叠加：全局 → 项目本地
+    explicit = os.environ.get("MINI_CONFIG")
+    if explicit:
+        config_paths = [Path(explicit).expanduser()]
+    else:
+        config_paths = [
+            Path(_DEFAULT_CONFIG_PATH).expanduser(),
+            Path(".mini/config.toml"),
+        ]
 
-    if config_path.exists():
-        try:
-            with open(config_path, "rb") as f:
-                data = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            raise SystemExit(f"Config parse error ({config_path}): {e}") from e
-        _apply_toml(config, data)
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path, "rb") as f:
+                    data = tomllib.load(f)
+            except tomllib.TOMLDecodeError as e:
+                raise SystemExit(f"Config parse error ({config_path}): {e}") from e
+            _apply_toml(config, data)
 
     _apply_env(config)
     return config
