@@ -27,6 +27,8 @@ def _preview(s: str, n: int) -> str:
     return s[:n] + "…" if len(s) > n else s
 
 
+
+
 def _params_str(params: dict[str, Any]) -> str:
     return json.dumps(params, ensure_ascii=False, indent=2)
 
@@ -479,6 +481,7 @@ class MiniTuiApp(App[None]):
         scrollbar-size-vertical: 1;
         scrollbar-size-horizontal: 1;
     }
+    #banner { padding: 1 2 0 2; }
     Static.user-turn { color: $text; padding: 1 2 0 2; }
     Static.run-header { color: $text-muted; padding: 1 2 0 2; }
     Static.step-divider { color: $text-muted; padding: 0 2; }
@@ -487,6 +490,16 @@ class MiniTuiApp(App[None]):
     Static.usage { padding: 0 2; }
     Static.log-line { padding: 0 2; }
     """
+
+    _BANNER = (
+        "[bold cyan]██╗  ██╗ █████╗ ███╗   ███╗ █████╗  ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗[/bold cyan]\n"
+        "[bold cyan]██║ ██╔╝██╔══██╗████╗ ████║██╔══██╗██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝[/bold cyan]\n"
+        "[bold cyan]█████╔╝ ███████║██╔████╔██║███████║██║     ██║     ███████║██║   ██║██║  ██║█████╗  [/bold cyan]\n"
+        "[bold cyan]██╔═██╗ ██╔══██║██║╚██╔╝██║██╔══██║██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝  [/bold cyan]\n"
+        "[bold cyan]██║  ██╗██║  ██║██║ ╚═╝ ██║██║  ██║╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗[/bold cyan]\n"
+        "[bold cyan]╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝[/bold cyan]\n"
+        "[dim]  输入消息开始对话  ·  键入 / 触发 skill  ·  Ctrl+C 退出[/dim]"
+    )
 
     # 初始化连接参数和 TUI 内部状态
     def __init__(self, host: str, port: int, replay_run_id: str | None = None) -> None:
@@ -512,6 +525,7 @@ class MiniTuiApp(App[None]):
 
     def on_mount(self) -> None:
         self._slash_items = self._build_slash_items()
+        self._append(Static(self._BANNER, id="banner"))
         self.run_worker(self._socket_loop(), exclusive=True, name="socket")
         prompt = self.query_one("#prompt", ChatTextArea)
         prompt.disabled = True
