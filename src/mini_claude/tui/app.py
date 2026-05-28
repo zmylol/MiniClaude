@@ -523,7 +523,10 @@ class MiniTuiApp(App[None]):
         try:
             loader = SkillLoader()
             for skill in loader.list_all_skills():
-                items.append((skill.name, skill.description))
+                desc = skill.description.splitlines()[0] if skill.description else ""
+                if len(desc) > 60:
+                    desc = desc[:57] + "..."
+                items.append((skill.name, desc))
         except Exception:
             pass
         return items
@@ -873,7 +876,7 @@ class MiniTuiApp(App[None]):
             args_preview = _preview(arguments, 80) if arguments else ""
             args_part = f"  [dim]{args_preview}[/dim]" if args_preview else ""
             self._append(Static(
-                f"[bold cyan][/{skill_name}][/bold cyan]{args_part}",
+                f"[bold cyan]/{skill_name}[/bold cyan]{args_part}",
                 classes="log-line",
             ))
 

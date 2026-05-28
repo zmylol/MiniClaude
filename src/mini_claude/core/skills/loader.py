@@ -28,17 +28,32 @@ def _parse_skill_file(path: Path) -> Skill:
     if m:
         front = m.group(1)
         body = text[m.end():]
-        for line in front.splitlines():
-            line = line.strip()
-            if line.startswith("description:"):
-                description = line[len("description:"):].strip().strip('"').strip("'")
-            elif line.startswith("name:"):
-                name = line[len("name:"):].strip().strip('"').strip("'")
-            elif line.startswith("- ") and allowed_tools is not None:
-                allowed_tools.append(line[2:].strip())
-            elif line.startswith("allowed_tools:"):
-                # 行内列表形式 allowed_tools: [a, b] — 暂不支持，只支持缩进列表
+        lines = front.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            if stripped.startswith("name:"):
+                name = stripped[len("name:"):].strip().strip('"').strip("'")
+            elif stripped.startswith("description:"):
+                val = stripped[len("description:"):].strip().strip('"').strip("'")
+                # YAML 块标量：> (折叠) 或 | (保留换行)，后续缩进行是内容
+                if val in (">", "|"):
+                    fold = val == ">"
+                    parts: list[str] = []
+                    i += 1
+                    while i < len(lines) and (lines[i].startswith(" ") or lines[i].startswith("\t")):
+                        parts.append(lines[i].strip())
+                        i += 1
+                    description = (" ".join(parts) if fold else "\n".join(parts)).strip()
+                    continue
+                else:
+                    description = val
+            elif stripped.startswith("allowed_tools:"):
                 pass
+            elif stripped.startswith("- "):
+                allowed_tools.append(stripped[2:].strip())
+            i += 1
 
     return Skill(
         name=name,
@@ -62,12 +77,18 @@ class SkillLoader:
                     return None
         return None
 
-    # 返回 [项目本地, 用户全局, 内建] 路径列表；resolve() 返回第一个存在的，项目本地优先级最高
+    # 返回候选路径列表，同时支持扁平文件（name.md）和目录式（name/SKILL.md）两种格式
     def _search_paths(self, name: str) -> list[Path]:
-        builtin = self._BUILTIN_DIR / f"{name}.md"
-        global_ = Path("~/.mini/skills").expanduser() / f"{name}.md"
-        local = Path(".mini/skills") / f"{name}.md"
-        return [local, global_, builtin]
+        dirs = [
+            Path(".mini/skills"),
+            Path("~/.mini/skills").expanduser(),
+            self._BUILTIN_DIR,
+        ]
+        paths: list[Path] = []
+        for d in dirs:
+            paths.append(d / f"{name}.md")
+            paths.append(d / name / "SKILL.md")
+        return paths
 
     # 列出所有可用 skill 名称（内建 + 用户全局 + 项目本地，去重后以项目本地覆盖为准）
     def list_all(self) -> list[str]:
@@ -80,6 +101,8 @@ class SkillLoader:
             if d.exists():
                 for f in sorted(d.glob("*.md")):
                     seen[f.stem] = None
+                for f in sorted(d.glob("*/SKILL.md")):
+                    seen[f.parent.name] = None
         return list(seen)
 
     # 列出所有可用 Skill 对象（含描述），项目本地覆盖同名内建
@@ -92,6 +115,12 @@ class SkillLoader:
         ]:
             if d.exists():
                 for f in sorted(d.glob("*.md")):
+                    try:
+                        skill = _parse_skill_file(f)
+                        seen[skill.name] = skill
+                    except Exception:
+                        pass
+                for f in sorted(d.glob("*/SKILL.md")):
                     try:
                         skill = _parse_skill_file(f)
                         seen[skill.name] = skill
