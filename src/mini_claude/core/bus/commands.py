@@ -27,6 +27,15 @@ class AgentRunResult(BaseModel):
     run_id: str
 
 
+class RunCancelCommand(BaseModel):
+    type: Literal["run.cancel"] = "run.cancel"
+    run_id: str
+
+
+class RunCancelResult(BaseModel):
+    cancelled: bool
+
+
 class EventSubscribeCommand(BaseModel):
     type: Literal["event.subscribe"] = "event.subscribe"
     topics: list[str]          # fnmatch 模式，如 ["step.*", "tool.*"]
@@ -104,6 +113,7 @@ class SessionCompactResult(BaseModel):
 Command = Annotated[
     PingCommand
     | AgentRunCommand
+    | RunCancelCommand
     | EventSubscribeCommand
     | SessionCreateCommand
     | SessionSendMessageCommand

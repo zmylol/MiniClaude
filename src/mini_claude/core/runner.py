@@ -181,10 +181,18 @@ class AgentRunner:
             system_prompt_override=system_prompt_override,
         )
         prefill_len = len(history)
+        session_id_str = session.id if session is not None else ""
 
         async with EventWriter(run_path / "events.jsonl") as writer:
             writer.subscribe(bus)
-            await bus.publish(RunStartedEvent(run_id=run_id, goal=goal, ts=_now()))
+            await bus.publish(
+                RunStartedEvent(
+                    run_id=run_id,
+                    session_id=session_id_str or None,
+                    goal=goal,
+                    ts=_now(),
+                )
+            )
 
             cancelled = False
             try:
@@ -197,7 +205,6 @@ class AgentRunner:
                         self._trace,
                         include_payload=self._config.trace.include_llm_payload,
                     )
-                session_id_str = session.id if session is not None else ""
                 child_runs_dir = (
                     store.runs_dir(session.id)
                     if session is not None and store is not None

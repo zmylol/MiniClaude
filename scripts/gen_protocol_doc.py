@@ -14,6 +14,8 @@ from mini_claude.core.bus.commands import (
     EventSubscribeResult,
     PingCommand,
     PongResult,
+    RunCancelCommand,
+    RunCancelResult,
     SessionCloseCommand,
     SessionCloseResult,
     SessionCreateCommand,
@@ -103,6 +105,17 @@ def generate() -> str:
         "id": "u-2",
         "result": {"run_id": run_id},
     }
+    run_cancel_req_example = {
+        "jsonrpc": "2.0",
+        "id": "u-cancel",
+        "method": "run.cancel",
+        "params": {"run_id": run_id},
+    }
+    run_cancel_resp_example = {
+        "jsonrpc": "2.0",
+        "id": "u-cancel",
+        "result": {"cancelled": True},
+    }
     subscribe_req_example = {
         "jsonrpc": "2.0",
         "id": "u-3",
@@ -168,6 +181,10 @@ def generate() -> str:
         "\n",
         _model_section("AgentRunResult", AgentRunResult, agent_run_resp_example),
         "\n",
+        _model_section("RunCancelCommand", RunCancelCommand, run_cancel_req_example),
+        "\n",
+        _model_section("RunCancelResult", RunCancelResult, run_cancel_resp_example),
+        "\n",
         _model_section("EventSubscribeCommand", EventSubscribeCommand, subscribe_req_example),
         "\n",
         _model_section("EventSubscribeResult", EventSubscribeResult, subscribe_resp_example),
@@ -196,7 +213,8 @@ def generate() -> str:
         "\n## Run Events\n\n",
         "Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscribed clients.\n\n",
         _model_section("RunStartedEvent", RunStartedEvent,
-            {"type": "run.started", "run_id": run_id, "goal": "总结 README.md", "ts": ts}),
+            {"type": "run.started", "run_id": run_id, "session_id": session_id,
+             "goal": "总结 README.md", "ts": ts}),
         "\n",
         _model_section("RunFinishedEvent", RunFinishedEvent, {
             "type": "run.finished", "run_id": run_id,

@@ -47,7 +47,7 @@ MiniClaude 的核心设计目标是把一个 agent 拆成清晰的本地系统�
 |------|----------|
 | Core daemon | `mini-core` 监听 `127.0.0.1:7437`，处理 JSON-RPC 命令和事件广播 |
 | CLI | `mini ping`、`mini chat`、`mini run`、`mini core`、`mini trace` |
-| TUI | `mini-tui` 提供 Textual 终端界面，支持聊天、流式输出、工具块、权限审批和 replay |
+| TUI | `mini-tui` 提供 Textual 终端界面，支持聊天、流式输出、工具块、权限审批、运行取消和 replay |
 | One-shot run | `mini run --goal "..."` 创建一次性 session 并执行 agent 任务 |
 | Multi-turn chat | `mini chat` / `mini-tui` 创建可持续对话的 chat session |
 | Event stream | run、step、tool、LLM token、permission、context compaction 等事件实时推送 |
@@ -140,6 +140,9 @@ uv run mini-tui
 
 TUI 会连接正在运行的 `mini-core`，创建 chat session，并实时显示 LLM token、工具调用、
 权限审批和 session 状态。
+
+agent 执行期间按 `Ctrl+C` 可取消当前 run；取消完成后 session 会恢复到可输入状态。按 `Ctrl+Q`
+退出 TUI。
 
 回放历史 run：
 

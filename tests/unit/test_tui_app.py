@@ -4,8 +4,8 @@ from rich.markdown import Markdown
 from textual.widget import Widget
 
 from mini_claude.tui.app import (
-    MiniTuiApp,
     LLMStreamBlock,
+    MiniTuiApp,
     ToolCallBlock,
     _param_summary,
     _preview,
@@ -118,6 +118,53 @@ def test_run_finished_failed_shows_red() -> None:
     assert "red" in rendered
 
 
+# 功能：验证取消中的主 run 会被记录为活动 run，并在 cancelled 结束事件后清理
+# 设计：直接驱动事件路由，确认 Ctrl+C 所依赖的 run_id 跟踪不会被已结束任务残留污染
+def test_cancelled_run_clears_active_run_and_shows_cancelled() -> None:
+    app = MiniTuiApp("127.0.0.1", 9999)
+    appended: list[Widget] = []
+    permissions_cleared: list[bool] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+    app._clear_pending_permissions = lambda: permissions_cleared.append(True)  # type: ignore[method-assign]
+    app._busy = True  # type: ignore[attr-defined]
+
+    app._handle_event({
+        "type": "run.started", "run_id": "run-cancel", "goal": "long task", "ts": "t"
+    })
+    assert app._active_run_id == "run-cancel"  # type: ignore[attr-defined]
+
+    app._handle_event({
+        "type": "run.finished", "run_id": "run-cancel", "status": "failed",
+        "steps": 2, "reason": "cancelled", "ts": "t",
+    })
+
+    assert app._active_run_id is None  # type: ignore[attr-defined]
+    assert permissions_cleared == [True]
+    assert "cancelled" in appended[-1].content
+    assert "yellow" in appended[-1].content
+
+
+# 功能：验证全局订阅收到其他 session 的 run.started 时不会覆盖当前 TUI 的取消目标
+# 设计：为本地和外部 run 注入不同 session_id，确保活动 run 只绑定当前 chat session
+def test_foreign_session_run_is_not_cancellation_target() -> None:
+    app = MiniTuiApp("127.0.0.1", 9999)
+    app._append = lambda w: None  # type: ignore[method-assign]
+    app._busy = True  # type: ignore[attr-defined]
+    app._session_id = "sess-local"  # type: ignore[attr-defined]
+
+    app._handle_event({
+        "type": "run.started", "run_id": "run-foreign", "session_id": "sess-foreign",
+        "goal": "other task", "ts": "t",
+    })
+    assert app._active_run_id is None  # type: ignore[attr-defined]
+
+    app._handle_event({
+        "type": "run.started", "run_id": "run-local", "session_id": "sess-local",
+        "goal": "my task", "ts": "t",
+    })
+    assert app._active_run_id == "run-local"  # type: ignore[attr-defined]
+
+
 # 功能：验证 tool.call_started 追加 ToolCallBlock，call_finished 更新其结果
 # 设计：直接调用 _handle_event 两次，通过 _pending_tool_blocks 验证状态流转
 def test_tool_call_started_and_finished() -> None:
@@ -192,6 +239,31 @@ async def test_input_submit_appends_user_turn_and_disables_prompt() -> None:
     assert area.text == ""
     assert "agent is working" in area.border_title.lower()
     assert appended[0].content == "[bold]>[/bold] hello"
+
+
+# 功能：验证 Ctrl+C 操作会通过 run.cancel 请求取消当前活动 run
+# 设计：用 fake client 捕获方法和参数，避免依赖已挂载 Textual App 或真实 daemon
+async def test_cancel_action_sends_active_run_id() -> None:
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        async def send_command(self, method: str, params: dict) -> dict:
+            self.calls.append((method, params))
+            return {"cancelled": True}
+
+    client = _FakeClient()
+    app = MiniTuiApp("127.0.0.1", 9999)
+    appended: list[Widget] = []
+    app._append = lambda w: appended.append(w)  # type: ignore[method-assign]
+    app._client = client  # type: ignore[assignment]
+    app._busy = True  # type: ignore[attr-defined]
+    app._active_run_id = "run-cancel"  # type: ignore[attr-defined]
+
+    await app.action_cancel_run()
+
+    assert client.calls == [("run.cancel", {"run_id": "run-cancel"})]
+    assert "cancelling" in appended[-1].content
 
 
 # 功能：验证未知事件类型不抛异常也不追加任何 widget

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,38 @@ class _Runner:
             run_id,
         )
         return RunOutcome(status="success", result="done", reason=None)
+
+
+class _BlockingRunner:
+    # 初始化可由测试观察启动状态的阻塞 runner
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self._forever = asyncio.Event()
+
+    # 模拟持续运行的 AgentRunner，直到测试通过 cancel_run 发出取消信号
+    async def run_and_capture(
+        self,
+        goal: str,
+        *,
+        run_id: str | None = None,
+        session: Session | None = None,
+        store: SessionStore | None = None,
+        system_prompt_override: str | None = None,
+        tool_whitelist: list[str] | None = None,
+    ) -> RunOutcome:
+        self.started.set()
+        await self._forever.wait()
+        return RunOutcome(status="success", result="unreachable", reason=None)
+
+
+class _PermissionManager:
+    # 记录取消 run 时 SessionManager 是否同步释放了该 session 的待审批请求
+    def __init__(self) -> None:
+        self.cancelled_sessions: list[tuple[str, str]] = []
+
+    # 模拟 PermissionManager.cancel_session，并保存 session_id 与取消原因供断言
+    def cancel_session(self, session_id: str, reason: str = "client_disconnected") -> None:
+        self.cancelled_sessions.append((session_id, reason))
 
 
 # 功能：验证 create 会创建 active session、写入 meta 并发布 session.created 事件
@@ -104,3 +137,36 @@ async def test_closed_session_rejects_message(tmp_path: Path) -> None:
     with pytest.raises(HandlerError) as exc:
         await manager.send_message(session.id, "again")
     assert exc.value.code == SESSION_CLOSED
+
+
+# 功能：验证 cancel_run 会终止活动 runner，并让 chat session 恢复为可继续输入状态
+# 设计：用永不主动结束的 runner 暴露取消边界，断言 RPC 外层正常返回且运行索引被清理
+async def test_cancel_run_restores_chat_session(tmp_path: Path) -> None:
+    events: list[object] = []
+    bus = EventBus()
+
+    async def collect(event: object) -> None:
+        events.append(event)
+
+    bus.subscribe(collect)
+    runner = _BlockingRunner()
+    permissions = _PermissionManager()
+    store = SessionStore(tmp_path)
+    manager = SessionManager(
+        store,
+        lambda: runner,
+        bus,
+        permission_manager=permissions,  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    session = await manager.create("chat")
+    send_task = asyncio.create_task(
+        manager.send_message(session.id, "keep working", run_id="run-cancel")
+    )
+    await runner.started.wait()
+
+    assert manager.cancel_run("run-cancel")
+    assert await send_task == "run-cancel"
+    assert store.read_meta(session.id).status == "waiting_for_input"
+    assert events[-1].type == "session.waiting_for_input"  # type: ignore[attr-defined]
+    assert permissions.cancelled_sessions == [(session.id, "run_cancelled")]
+    assert not manager.cancel_run("run-cancel")

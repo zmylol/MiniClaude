@@ -23,6 +23,7 @@ from mini_claude.core.skills.loader import SkillLoader
 
 if TYPE_CHECKING:
     from mini_claude.core.llm.base import LLMProvider
+    from mini_claude.core.permissions.manager import PermissionManager
     from mini_claude.core.runner import AgentRunner
 
 SESSION_NOT_FOUND = -32010
@@ -43,13 +44,16 @@ class SessionManager:
         runner_factory: Callable[[], AgentRunner],
         bus: EventBus,
         provider: LLMProvider | None = None,
+        permission_manager: PermissionManager | None = None,
     ) -> None:
         self._store = store
         self._runner_factory = runner_factory
         self._bus = bus
         self._provider = provider
+        self._permission_manager = permission_manager
         self._sessions: dict[str, Session] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._running_runs: dict[str, tuple[asyncio.Task[Any], str]] = {}
         self._skill_loader = SkillLoader()
 
     # 创建新 session 并写入 meta.json
@@ -121,30 +125,52 @@ class SessionManager:
                     )
 
             runner = self._runner_factory()
-            await runner.run_and_capture(
-                goal,
-                run_id=run_id,
-                session=session,
-                store=self._store,
-                system_prompt_override=system_prompt_override,
-                tool_whitelist=tool_whitelist,
-            )
-
-            session.updated_at = _now()
-            if session.mode == "one_shot":
-                session.status = "closed"
-                await self._bus.publish(SessionClosedEvent(session_id=sid, ts=session.updated_at))
-            else:
-                session.status = "waiting_for_input"
-                await self._bus.publish(
-                    SessionWaitingForInputEvent(
-                        session_id=sid,
-                        last_run_id=run_id,
-                        ts=session.updated_at,
-                    )
+            run_task = asyncio.create_task(
+                runner.run_and_capture(
+                    goal,
+                    run_id=run_id,
+                    session=session,
+                    store=self._store,
+                    system_prompt_override=system_prompt_override,
+                    tool_whitelist=tool_whitelist,
                 )
-            self._store.write_meta(session)
+            )
+            self._running_runs[run_id] = (run_task, sid)
+            try:
+                await run_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._running_runs.pop(run_id, None)
+                session.updated_at = _now()
+                if session.mode == "one_shot":
+                    session.status = "closed"
+                    await self._bus.publish(
+                        SessionClosedEvent(session_id=sid, ts=session.updated_at)
+                    )
+                else:
+                    session.status = "waiting_for_input"
+                    await self._bus.publish(
+                        SessionWaitingForInputEvent(
+                            session_id=sid,
+                            last_run_id=run_id,
+                            ts=session.updated_at,
+                        )
+                    )
+                self._store.write_meta(session)
             return run_id
+
+    # 请求取消仍在执行的 run；找不到或已结束时返回 False
+    def cancel_run(self, run_id: str) -> bool:
+        active = self._running_runs.get(run_id)
+        if active is None:
+            return False
+        task, sid = active
+        if task.done():
+            return False
+        if self._permission_manager is not None:
+            self._permission_manager.cancel_session(sid, reason="run_cancelled")
+        return task.cancel()
 
     # 关闭指定 session 并更新 meta.json
     async def close(self, sid: str) -> None:

@@ -6,7 +6,7 @@
 
 - TCP loopback `127.0.0.1:7437` (override via `MINI_HOST` / `MINI_PORT`)
 - Each message is one `\n`-terminated JSON line (NDJSON)
-- Commands use JSON-RPC 2.0 (client â†’ server); Events use `kind=event` envelope (server â†’ client)
+- Commands use JSON-RPC 2.0 (client ¡ú server); Events use `kind=event` envelope (server ¡ú client)
 
 ## Commands
 
@@ -174,6 +174,82 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
   "id": "u-2",
   "result": {
     "run_id": "20260516-100000-abc123"
+  }
+}
+```
+
+### RunCancelCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "run.cancel",
+      "default": "run.cancel",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "title": "RunCancelCommand",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-cancel",
+  "method": "run.cancel",
+  "params": {
+    "run_id": "20260516-100000-abc123"
+  }
+}
+```
+
+### RunCancelResult
+
+| Field | Type | Required |
+|---|---|---|
+| `cancelled` | `boolean` | yes |
+
+```json
+{
+  "properties": {
+    "cancelled": {
+      "title": "Cancelled",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cancelled"
+  ],
+  "title": "RunCancelResult",
+  "type": "object"
+}
+```
+
+**Example:**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "u-cancel",
+  "result": {
+    "cancelled": true
   }
 }
 ```
@@ -631,7 +707,7 @@ Events pushed from daemon to subscribed clients over the same TCP connection.
 
 ## IPC Events
 
-Events sent over the IPC socket (daemon â†’ client).
+Events sent over the IPC socket (daemon ¡ú client).
 
 ### CoreStartedEvent
 
@@ -678,6 +754,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 |---|---|---|
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
+| `session_id` | `string | null` | no |
 | `goal` | `string` | yes |
 | `ts` | `string` | yes |
 
@@ -693,6 +770,18 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "run_id": {
       "title": "Run Id",
       "type": "string"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
     },
     "goal": {
       "title": "Goal",
@@ -719,6 +808,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 {
   "type": "run.started",
   "run_id": "20260516-100000-abc123",
+  "session_id": "sess-abc123def456",
   "goal": "\u603b\u7ed3 README.md",
   "ts": "2026-05-16T10:00:00.001Z"
 }
