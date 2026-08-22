@@ -20,6 +20,7 @@ JSON-RPC/NDJSON 协议接入新的前端或自动化工具。
 
 - [为什么是 MiniClaude](#为什么是-miniclaude)
 - [核心能力](#核心能力)
+- [Roadmap Preview](#roadmap-preview)
 - [快速开始](#快速开始)
 - [常用命令](#常用命令)
 - [Architecture](#architecture)
@@ -57,6 +58,20 @@ MiniClaude 的核心设计目标是把一个 agent 拆成清晰的本地系统�
 | Memory/context | 读取 `~/.mini/context.md` 与 `.mini/context.md`，session notes 可跨轮注入上下文 |
 | Compaction | 支持 session 上下文压缩，TUI 中可使用 `/compact` |
 | MCP | 支持 stdio / TCP MCP server，发现的 MCP 工具会注入 agent 工具注册表 |
+
+## Roadmap Preview
+
+MiniClaude 正在向一套证据可追溯、graph-native 的 agent harness 演进：
+
+- **S8 — Evidence-backed Memory**：找回历史决策及其原始证据。
+- **S9 — Graph Runtime**：将复杂工作组织成可校验、可执行的任务图。
+- **S10 — Critical Decisions**：在高影响节点上执行受控的多采样、Critic 和上下文恢复。
+- **S11 — Bounded Exploration**：在硬性预算内运行 Explore Node 与嵌套 Local GraphLoop。
+
+> S8–S11 是内部能力里程碑，不对应包版本号；这些规划不代表功能已经实现、
+> 固定 GitHub Release 或承诺发布日期。
+
+完整范围、非目标、公开演示和评测门槛见 [ROADMAP.md](./ROADMAP.md)。
 
 ## 快速开始
 
@@ -299,6 +314,7 @@ make verify-s0
 
 ## 文档地图
 
+- [ROADMAP.md](./ROADMAP.md)：S8–S11 的技术方向、范围边界与评测门槛。
 - [RUNBOOK.md](./RUNBOOK.md)：日常操作、配置、日志、开发命令和故障排查。
 - [WIRE_PROTOCOL.md](./WIRE_PROTOCOL.md)：由代码生成的 IPC 协议文档。
 - [AGENT.md](./AGENT.md)：给 Codex/agent 的仓库工作指南。
