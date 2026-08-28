@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from mini_claude.core.bus.commands import PingCommand, PongResult
+from mini_claude.core.bus.commands import PingCommand, PongResult, RunCancelCommand, RunCancelResult
 from mini_claude.core.bus.events import CoreStartedEvent
 
 
@@ -46,3 +46,16 @@ def test_core_started_event_roundtrip() -> None:
     evt2 = CoreStartedEvent.model_validate_json(evt.model_dump_json())
     assert evt2.listen_addr == "127.0.0.1:7437"
     assert evt2.type == "core.started"
+
+
+# 功能：验证 run.cancel 命令与响应模型能在 wire 格式中完整往返
+# 设计：同时覆盖 run_id 和 cancelled 字段，防止取消协议在客户端与 daemon 间发生类型漂移
+def test_run_cancel_roundtrip() -> None:
+    command = RunCancelCommand(run_id="run-abc")
+    command_copy = RunCancelCommand.model_validate_json(command.model_dump_json())
+    result = RunCancelResult(cancelled=True)
+    result_copy = RunCancelResult.model_validate_json(result.model_dump_json())
+
+    assert command_copy.type == "run.cancel"
+    assert command_copy.run_id == "run-abc"
+    assert result_copy.cancelled

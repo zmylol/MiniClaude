@@ -466,6 +466,7 @@ class MiniTuiApp(App[None]):
 
     TITLE = "MiniClaude"
     BINDINGS = [
+        Binding("ctrl+c", "cancel_run", "cancel run"),
         Binding("ctrl+q", "quit", "quit"),
     ]
     CSS = """
@@ -493,7 +494,7 @@ class MiniTuiApp(App[None]):
 
     _BANNER = (
         "[bold cyan]MiniClaude[/bold cyan]\n"
-        "[dim]  输入消息开始对话  ·  键入 / 触发 skill  ·  Ctrl+C 退出[/dim]"
+        "[dim]  输入消息开始对话  ·  键入 / 触发 skill  ·  Ctrl+C 取消运行  ·  Ctrl+Q 退出[/dim]"
     )
 
     # 初始化连接参数和 TUI 内部状态
@@ -508,6 +509,7 @@ class MiniTuiApp(App[None]):
         self._pending_permission_blocks: dict[str, PermissionBlock] = {}
         self._session_id: str | None = None
         self._busy = False
+        self._active_run_id: str | None = None
         self._last_context_pct: float = 0.0
         self._slash_items: list[tuple[str, str]] = []
         self._subagent_run_ids: dict[str, str] = {}  # child run_id -> description
@@ -604,6 +606,36 @@ class MiniTuiApp(App[None]):
             except (IpcError, RuntimeError, OSError):
                 self._append(Static("[yellow]warning: failed to close session[/yellow]"))
         self.exit()
+
+    # 取消当前 TUI 发起的 run；等待 run.started 时提示用户稍后重试
+    async def action_cancel_run(self) -> None:
+        if not self._busy:
+            self._append(Static("[dim]no active run to cancel[/dim]", classes="log-line"))
+            return
+        if self._client is None:
+            self._append(Static(
+                "[yellow]disconnected; cannot cancel run[/yellow]",
+                classes="log-line",
+            ))
+            return
+        if self._active_run_id is None:
+            self._append(Static(
+                "[yellow]run is starting; press Ctrl+C again[/yellow]",
+                classes="log-line",
+            ))
+            return
+        try:
+            result = await self._client.send_command(
+                "run.cancel",
+                {"run_id": self._active_run_id},
+            )
+        except (IpcError, RuntimeError, OSError) as e:
+            self._append(Static(f"[red]cancel error: {e}[/red]", classes="log-line"))
+            return
+        if result.get("cancelled"):
+            self._append(Static("[yellow]cancelling run...[/yellow]", classes="log-line"))
+        else:
+            self._append(Static("[dim]run already finished[/dim]", classes="log-line"))
 
     # 将输入框提交内容发送给当前 chat session；用 worker 发送，避免 await 阻塞 App 消息泵
     async def on_chat_text_area_submitted(self, event: ChatTextArea.Submitted) -> None:
@@ -720,6 +752,17 @@ class MiniTuiApp(App[None]):
         except Exception:
             return None
 
+    # 清理 run 取消后遗留的权限提示，避免已失效的审批控件继续占用输入焦点
+    def _clear_pending_permissions(self) -> None:
+        for block in self._pending_permission_blocks.values():
+            block._resolve("cancelled")
+        self._pending_permission_blocks.clear()
+        try:
+            for select in list(self.query(PermissionSelect)):
+                select.remove()
+        except Exception:
+            pass
+
     # 生成 context 占用率的彩色进度条字符串
     def _render_ctx_bar(self, pct: float) -> str:
         filled = int(pct * 20)
@@ -819,6 +862,7 @@ class MiniTuiApp(App[None]):
                     loop_task.cancel()
                 self._client = None
                 self._session_id = None
+                self._active_run_id = None
                 prompt = self._prompt()
                 if prompt is not None:
                     prompt.disabled = True
@@ -874,6 +918,15 @@ class MiniTuiApp(App[None]):
         elif t == "run.started":
             run_id = event.get("run_id", "")
             goal = event.get("goal", "")
+            session_id = event.get("session_id")
+            belongs_to_session = session_id is None or session_id == self._session_id
+            if (
+                self._busy
+                and self._active_run_id is None
+                and run_id not in self._subagent_run_ids
+                and belongs_to_session
+            ):
+                self._active_run_id = str(run_id)
             self._append(Static(
                 f"[dim]run[/dim]  [cyan]{run_id}[/cyan]  [dim]{_preview(goal, 96)}[/dim]",
                 classes="run-header",
@@ -956,10 +1009,19 @@ class MiniTuiApp(App[None]):
                 tc_done.set_result(error_msg, elapsed_ms, is_error=True)
 
         elif t == "run.finished":
+            run_id = str(event.get("run_id", ""))
             status = event.get("status", "")
             steps = event.get("steps", 0)
             reason = event.get("reason") or ""
-            if status == "success":
+            if run_id == self._active_run_id:
+                self._active_run_id = None
+            if reason == "cancelled":
+                self._clear_pending_permissions()
+                self._append(Static(
+                    f"[bold yellow]■ cancelled[/bold yellow]  [dim]{steps} steps[/dim]",
+                    classes="run-err",
+                ))
+            elif status == "success":
                 self._append(Static(
                     f"[bold green]✓ completed[/bold green]  [dim]{steps} steps[/dim]",
                     classes="run-ok",

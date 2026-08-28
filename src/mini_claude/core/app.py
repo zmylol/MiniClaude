@@ -22,6 +22,8 @@ from mini_claude.core.bus.commands import (
     PermissionRespondCommand,
     PermissionRespondResult,
     PongResult,
+    RunCancelCommand,
+    RunCancelResult,
     SessionCloseCommand,
     SessionCloseResult,
     SessionCompactCommand,
@@ -105,6 +107,12 @@ class CoreApp:
         self._running_runs.add(run_task)
         run_task.add_done_callback(self._running_runs.discard)
         return AgentRunResult(run_id=run_id)
+
+    # 请求取消指定 run，并返回是否成功向运行任务发出取消信号
+    async def _run_cancel_handler(self, params: dict[str, Any]) -> RunCancelResult:
+        assert self._sessions is not None
+        cmd = RunCancelCommand.model_validate(params)
+        return RunCancelResult(cancelled=self._sessions.cancel_run(cmd.run_id))
 
     # 创建 chat 或 one_shot session，并返回 session_id
     async def _session_create_handler(self, params: dict[str, Any]) -> SessionCreateResult:
@@ -251,6 +259,7 @@ class CoreApp:
             ),
             bus=self._bus,
             provider=compact_provider,
+            permission_manager=self._permission_manager,
         )
 
         server = SocketServer(
@@ -261,6 +270,7 @@ class CoreApp:
         )
         server.register("core.ping", self._ping_handler)
         server.register("agent.run", self._agent_run_handler)
+        server.register("run.cancel", self._run_cancel_handler)
         server.register("event.subscribe", self._subscribe_handler)
         server.register("session.create", self._session_create_handler)
         server.register("session.send_message", self._session_send_handler)

@@ -14,6 +14,7 @@ class CoreStartedEvent(BaseModel):
 class RunStartedEvent(BaseModel):
     type: Literal["run.started"] = "run.started"
     run_id: str
+    session_id: str | None = None
     goal: str
     ts: str  # ISO 8601
 
