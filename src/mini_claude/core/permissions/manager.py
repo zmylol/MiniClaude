@@ -148,19 +148,18 @@ class PermissionManager:
             ),
         )
 
-        await event_emitter(
-            {
-                "type": "permission.requested",
-                "tool_use_id": tool_use_id,
-                "tool_name": tool_name,
-                "params": params,
-                "param_preview": param_preview(tool_name, params),
-                "session_id": session_id,
-                "ts": _now(),
-            }
-        )
-
         try:
+            await event_emitter(
+                {
+                    "type": "permission.requested",
+                    "tool_use_id": tool_use_id,
+                    "tool_name": tool_name,
+                    "params": params,
+                    "param_preview": param_preview(tool_name, params),
+                    "session_id": session_id,
+                    "ts": _now(),
+                }
+            )
             if self._timeout_s > 0:
                 raw = await asyncio.wait_for(future, timeout=self._timeout_s)
             else:

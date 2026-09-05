@@ -1028,8 +1028,10 @@ class MiniTuiApp(App[None]):
                 perm_block = self._pending_permission_blocks.pop(tool_use_id)
                 perm_block._resolve(decision)
                 try:
-                    select = self.query_one(PermissionSelect)
-                    select.remove()
+                    for select in self.query(PermissionSelect):
+                        if select._tool_use_id == tool_use_id:
+                            select.remove()
+                            break
                 except Exception:
                     pass
                 if not self._pending_permission_blocks:
