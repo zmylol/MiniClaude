@@ -186,6 +186,29 @@ async def test_tool_failure_does_not_cancel_successful_sibling(monkeypatch: pyte
     assert not tool.cancelled
 
 
+async def test_cancelled_tool_does_not_send_incomplete_results_to_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop, context, tool, provider, _ = _setup()
+    invoke = tool.invoke
+
+    async def cancel_first(params: dict[str, object]) -> ToolResult:
+        if params["name"] == "first":
+            raise asyncio.CancelledError
+        return await invoke(params)
+
+    monkeypatch.setattr(tool, "invoke", cancel_first)
+    tool.release["second"].set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(loop.run(context), timeout=1.0)
+
+    assert context.reason == "cancelled"
+    assert not provider.observed_results
+    assert context.messages[-1]["content"] == [
+        {"type": "tool_result", "tool_use_id": "second", "content": "second"},
+    ]
+
+
 async def test_parallel_permissions_are_independent_and_denial_does_not_stop_sibling() -> None:
     manager = PermissionManager(timeout_s=0)
     loop, context, tool, provider, bus = _setup(permission_manager=manager)
