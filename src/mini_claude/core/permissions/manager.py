@@ -10,6 +10,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
+from mini_claude.core.bus.commands import PendingPermission
 from mini_claude.core.permissions.policy import (
     DEFAULT_POLICIES,
     PermissionDecision,
@@ -18,6 +19,7 @@ from mini_claude.core.permissions.policy import (
     param_preview,
 )
 from mini_claude.core.permissions.storage import load_policy_file, save_policy_file
+from mini_claude.core.session.model import PermissionMode
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class _PendingRequest:
     future: asyncio.Future[str]
     session_id: str
     tool_name: str
+    snapshot: PendingPermission
 
 
 # 管理工具调用权限：策略评估、用户审批挂起、session 级和持久化 always 缓存、超时
@@ -54,6 +57,18 @@ class PermissionManager:
         )
         # 0 表示不超时
         self._timeout_s = timeout_s
+        self._session_modes: dict[str, PermissionMode] = {}
+
+    # 设置会话的显式访问模式，子代理通过同一会话 ID 继承
+    def set_session_mode(self, session_id: str, mode: PermissionMode) -> None:
+        self._session_modes[session_id] = mode
+
+    # 返回此会话仍有效的审批快照，让客户端重连后恢复可操作的审批卡片
+    def pending_for(self, session_id: str) -> list[PendingPermission]:
+        return [
+            request.snapshot.model_copy(deep=True) for request in self._pending.values()
+            if request.session_id == session_id and not request.future.done()
+        ]
 
     # 对工具名 + 参数执行 4 层静态评估，不挂起
     def evaluate(self, tool_name: str, params: dict[str, Any]) -> PermissionDecision:
@@ -69,7 +84,16 @@ class PermissionManager:
         params: dict[str, Any],
         session_id: str,
         event_emitter: Callable[[dict[str, Any]], Awaitable[None]],
+        run_id: str | None = None,
     ) -> tuple[bool, str]:
+        mode = self._session_modes.get(session_id, "ask")
+        if mode == "full_access":
+            return True, "auto_allow"
+        if mode == "read_only":
+            allowed = tool_name in {
+                "read_file", "list_dir", "task_get", "task_list", "agent_result", "spawn_agent",
+            }
+            return allowed, "auto_allow" if allowed else "auto_deny"
         command = str(params.get("command", "")) if tool_name == "bash" else ""
         policy = self._policies.get(tool_name)
 
@@ -118,6 +142,10 @@ class PermissionManager:
             future=future,
             session_id=session_id,
             tool_name=tool_name,
+            snapshot=PendingPermission(
+                tool_use_id=tool_use_id, tool_name=tool_name, params=dict(params),
+                param_preview=param_preview(tool_name, params), run_id=run_id,
+            ),
         )
 
         await event_emitter(
@@ -141,6 +169,8 @@ class PermissionManager:
             self._pending.pop(tool_use_id, None)
             logger.info("permission: timeout tool_use_id=%s tool=%s", tool_use_id, tool_name)
             return False, "timeout"
+        finally:
+            self._pending.pop(tool_use_id, None)
 
         allowed = self._apply_response(raw, session_id, tool_name)
         return allowed, raw

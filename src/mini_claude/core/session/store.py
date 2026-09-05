@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,30 @@ class SessionStore:
 
     # 返回指定 session 的目录路径
     def session_dir(self, sid: str) -> Path:
-        return self._root / sid
+        if not re.fullmatch(r"sess-[A-Za-z0-9_-]{1,64}", sid):
+            raise ValueError("invalid session id")
+        path = self._root / sid
+        if path.is_symlink() or path.resolve().parent != self._root.resolve():
+            raise ValueError("invalid session directory")
+        return path
+
+    # 扫描会话元数据，跳过损坏记录和符号链接而不访问根目录之外的数据
+    def list_sessions(self) -> list[Session]:
+        sessions = []
+        for path in self._root.iterdir():
+            if not path.is_dir() or path.is_symlink() or not path.name.startswith("sess-"):
+                continue
+            try:
+                session = self.read_meta(path.name)
+                if session.id == path.name:
+                    sessions.append(session)
+            except (OSError, ValueError, KeyError, TypeError):
+                logger.warning("skip invalid session metadata: %s", path.name)
+        return sessions
+
+    # 删除已校验的会话目录及其历史和运行记录
+    def delete(self, sid: str) -> None:
+        shutil.rmtree(self.session_dir(sid))
 
     # 返回指定 session 下的 runs 目录路径
     def runs_dir(self, sid: str) -> Path:
@@ -43,7 +68,10 @@ class SessionStore:
 
     # 从 meta.json 读取 session meta
     def read_meta(self, sid: str) -> Session:
-        data = json.loads((self.session_dir(sid) / "meta.json").read_text(encoding="utf-8"))
+        path = self.session_dir(sid) / "meta.json"
+        if path.is_symlink():
+            raise ValueError("invalid session metadata")
+        data = json.loads(path.read_text(encoding="utf-8"))
         return Session.from_dict(data)
 
     # 追加一条 Anthropic API 消息到 thread.jsonl

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#edf3fa" />
+    <title>MiniClaude</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23252728'/%3E%3Cpath d='m19 22 8 10-8 10m17 0h11' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script type="module" src="/assets/app.js"></script>
+  </head>
+  <body>
+    <svg class="icon-definitions" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></symbol>
+        <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="m11 5-7 7 7 7M4 12h16"/></symbol>
+        <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="m13 5 7 7-7 7M20 12H4"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.7" cy="10.7" r="7.2"/><path d="m16 16 4.8 4.8"/></symbol>
+        <symbol id="i-compose" viewBox="0 0 24 24"><path d="M10 4H6a3 3 0 0 0-3 3v11a3 3 0 0 0 3 3h11a3 3 0 0 0 3-3v-4M14.6 3.4a2.1 2.1 0 0 1 3 3L10 14l-4 1 1-4Z"/></symbol>
+        <symbol id="i-git-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/><path d="M6 7v10m8-13h2a2 2 0 0 1 2 2v11m-6-11 2-2-2-2"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l-3 3"/></symbol>
+        <symbol id="i-plugin" viewBox="0 0 24 24"><path d="M19.4 17.6A9 9 0 1 1 21 12c0 3-2 4-4 4h-2m-6-9 3-2 3 2v3l3 2-3 2v3h-3l-3-2-3-3 3-2Z"/></symbol>
+        <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+        <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+        <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 11.5a9 9 0 0 1-9 9 10 10 0 0 1-4-.9L3 21l1.4-4.7A9 9 0 1 1 21 11.5Z"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 8V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Zm0 1h18"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Z"/><path d="M12 8v5m0 3h.01"/></symbol>
+        <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 11 7-7 7 7M12 4v16"/></symbol>
+        <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none"/></symbol>
+        <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5m9 0h5"/></symbol>
+        <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-16-2 20"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+        <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.5"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-.7 2.4-2.1 1.2-2.4-.5-2 3.4 1.6 1.9v2.4l-1.6 1.9 2 3.4 2.4-.5 2.1 1.2L10 22h4l.7-2.8 2.1-1.2 2.4.5 2-3.4-1.6-1.9v-2.4l1.6-1.9-2-3.4-2.4.5-2.1-1.2L14 3Z"/><circle cx="12" cy="12.5" r="3"/></symbol>
+        <symbol id="i-pin" viewBox="0 0 24 24"><path d="m9 3 12 12m-9-9-5 5-4 1 9 9 1-4 5-5M3 21l5-5"/></symbol>
+        <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m9 16 8-8a3 3 0 0 0-4-4L4 13a5 5 0 0 0 7 7L21 10M7 14l8-8"/></symbol>
+      </defs>
+    </svg>
+
+    <button id="sidebar-backdrop" class="sidebar-backdrop" aria-label="关闭侧栏" tabindex="-1"></button>
+
+    <aside id="sidebar" class="sidebar" aria-label="工作区侧栏">
+      <div class="window-chrome">
+        <div class="traffic-lights" aria-hidden="true"><span></span><span></span><span></span></div>
+        <button id="sidebar-toggle" class="icon-button chrome-button" aria-label="收起侧栏" aria-expanded="true" aria-controls="sidebar"><svg class="icon"><use href="#i-sidebar"/></svg></button>
+        <div class="chrome-history"><button id="history-back" class="icon-button" aria-label="返回" disabled><svg class="icon"><use href="#i-arrow-left"/></svg></button><button id="history-forward" class="icon-button" aria-label="前进" disabled><svg class="icon"><use href="#i-arrow-right"/></svg></button></div>
+      </div>
+
+      <div class="sidebar-brand">
+        <button class="wordmark" data-action="profile" title="设置">MiniClaude<span class="brand-chevron"><svg class="icon"><use href="#i-chevron-down"/></svg></span></button>
+        <button id="search-button" class="icon-button" aria-label="搜索对话" aria-controls="search-input" aria-expanded="false" title="搜索对话"><svg class="icon"><use href="#i-search"/></svg></button>
+      </div>
+      <div class="sidebar-search"><input id="search-input" type="search" placeholder="搜索对话…" aria-label="搜索对话" autocomplete="off" hidden /></div>
+
+      <nav class="primary-nav" aria-label="主导航">
+        <button id="new-chat" class="nav-item"><svg class="icon"><use href="#i-compose"/></svg><span>新对话</span><span class="nav-shortcut" aria-hidden="true">⌘ ⇧ O</span></button>
+        <button class="nav-item" data-action="pull-requests"><svg class="icon"><use href="#i-git-branch"/></svg><span>Pull Request</span></button>
+        <button class="nav-item" data-action="scheduled"><svg class="icon"><use href="#i-clock"/></svg><span>已安排</span></button>
+        <button class="nav-item" data-action="plugins"><svg class="icon"><use href="#i-plugin"/></svg><span>插件</span></button>
+      </nav>
+
+      <div class="sidebar-scroll">
+        <section class="sidebar-section" aria-labelledby="pinned-heading">
+          <h2 id="pinned-heading" class="section-heading">置顶</h2>
+          <div id="pinned-list" class="conversation-list"><p class="sidebar-empty">重要的对话，留在手边</p></div>
+        </section>
+        <section class="sidebar-section projects-section" aria-labelledby="projects-heading">
+          <div class="section-heading-row"><h2 id="projects-heading" class="section-heading">项目</h2><button class="icon-button small-button" data-action="open-project" aria-label="打开项目文件夹" title="打开项目文件夹"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+          <div id="project-list"><button class="project-nav-item" data-action="project"><svg class="icon"><use href="#i-folder"/></svg><span id="sidebar-project-name">当前工作区</span></button></div>
+        </section>
+        <section class="sidebar-section recent-section" aria-labelledby="recent-heading">
+          <div class="section-heading-row"><h2 id="recent-heading" class="section-heading">最近<svg class="icon small"><use href="#i-chevron-down"/></svg></h2><button class="icon-button small-button" data-action="new-chat" aria-label="新建对话"><svg class="icon"><use href="#i-compose"/></svg></button></div>
+          <div id="recent-list" class="conversation-list"><p class="sidebar-empty">你的对话会显示在这里</p></div>
+        </section>
+      </div>
+
+      <footer class="sidebar-footer">
+        <button class="profile-button" data-action="profile" aria-label="查看本地工作区信息"><span class="avatar" aria-hidden="true">M</span><span>本地工作区</span></button>
+        <span id="connection-status" class="connection-status" data-state="connecting" role="status" title="正在连接"><span class="status-dot" aria-hidden="true"></span><span>连接中</span></span>
+      </footer>
+    </aside>
+
+    <main class="workspace" aria-label="对话工作区">
+      <header class="workspace-header">
+        <button id="sidebar-open" class="icon-button sidebar-open-button" aria-label="展开侧栏" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="#i-sidebar"/></svg></button>
+        <h1 id="conversation-title" class="conversation-title">新对话</h1>
+        <div class="workspace-header-actions"><button class="header-button" data-action="changes" title="查看项目改动"><svg class="icon"><use href="#i-git-branch"/></svg><span>改动</span></button><button id="conversation-menu" class="icon-button" aria-label="对话操作" title="对话操作"><svg class="icon"><use href="#i-more"/></svg></button><button id="event-toggle" class="icon-button" aria-label="查看实时事件" aria-expanded="false" aria-controls="event-panel" title="实时事件"><svg class="icon"><use href="#i-terminal"/></svg></button></div>
+      </header>
+
+      <section id="workspace-page" class="workspace-page" aria-label="工作区页面" hidden></section>
+
+      <div class="conversation-stage">
+        <section id="welcome" class="welcome" aria-label="开始对话">
+          <svg class="welcome-mark" viewBox="0 0 72 72" fill="none" aria-hidden="true"><path d="M25 10c6-7 16-6 21 1 9-1 17 7 15 16 7 7 5 18-3 23-2 10-13 14-21 9-9 4-19-1-20-10-9-5-12-16-6-23-1-8 5-15 14-16Z"/><path d="m25 27 6 9-6 9m15 0h10"/></svg>
+          <h2>我们要构建什么？</h2>
+          <div id="empty-workspace" class="empty-workspace" hidden><p>打开一个项目文件夹，开始新的对话。</p><button class="secondary" data-action="open-project"><svg class="icon"><use href="#i-folder"/></svg>打开项目</button></div>
+        </section>
+        <div id="messages" class="messages" role="log" aria-label="对话消息" aria-live="polite" aria-relevant="additions" tabindex="0" hidden></div>
+      </div>
+
+      <div class="composer-dock">
+        <div class="project-strip"><button id="project-button" class="project-picker" type="button" title="切换项目" aria-haspopup="dialog" aria-expanded="false" aria-controls="project-popover"><svg class="icon"><use href="#i-folder"/></svg><span id="project-name">当前工作区</span><svg class="icon small project-chevron"><use href="#i-chevron-down"/></svg></button><span class="project-local-label">本地</span></div>
+        <form id="composer-form" class="composer-form">
+          <div id="attachment-list" class="attachment-list" aria-label="已添加的文件" hidden></div>
+          <input id="file-picker" type="file" multiple hidden />
+          <label class="sr-only" for="prompt">给 MiniClaude 的消息</label>
+          <textarea id="prompt" name="prompt" placeholder="随心输入，开始构建" rows="2" spellcheck="false" enterkeyhint="send"></textarea>
+          <div class="composer-toolbar">
+            <div class="composer-tools"><button id="attach-button" class="icon-button" type="button" aria-label="添加文件" title="选择文件，或直接拖入"><svg class="icon"><use href="#i-plus"/></svg></button><button id="permission-mode" class="permission-mode" type="button" title="设置工具执行权限"><svg class="icon"><use href="#i-shield"/></svg><span>按需审批</span></button></div>
+            <div class="composer-send-tools"><button id="model-button" class="model-button" type="button" title="查看当前模型"><span id="model-name">默认模型</span><svg class="icon small"><use href="#i-chevron-down"/></svg></button><button id="send-button" class="send-button" type="submit" aria-label="发送消息" title="发送消息" disabled><svg class="icon"><use href="#i-arrow-up"/></svg></button></div>
+          </div>
+        </form>
+        <p class="composer-hint">Enter 发送<span aria-hidden="true"> · </span>Shift + Enter 换行</p>
+      </div>
+
+      <aside id="event-panel" class="event-panel" aria-labelledby="event-heading" hidden>
+        <div class="event-panel-header"><div><h2 id="event-heading">实时事件</h2><p>来自当前会话的事件流</p></div><button id="event-close" class="icon-button" aria-label="关闭实时事件"><svg class="icon"><use href="#i-x"/></svg></button></div>
+        <ol id="event-list" class="event-list" aria-live="polite"><li class="empty-state">发送消息后，事件将显示在这里。</li></ol>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="project-popover" class="project-popover" role="dialog" aria-label="选择项目" hidden></div>
+    <dialog id="modal" class="modal" aria-label="工作区信息"><form method="dialog" class="modal-close-form"><button class="icon-button" aria-label="关闭对话框"><svg class="icon"><use href="#i-x"/></svg></button></form><div id="modal-content"></div></dialog>
+  </body>
+</html>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -139,6 +139,20 @@ class AgentRunner:
     async def run(self, goal: str, *, run_id: str | None = None) -> None:
         await self.run_and_capture(goal, run_id=run_id)
 
+    # 检查此运行派生的后台子代理是否仍在执行
+    def has_background_runs(self) -> bool:
+        return any(not task.done() for task, _ in self._task_registry.all())
+
+    # 取消并等待所有后台子代理，确保其工具和事件写入器完成清理
+    async def cancel_background(self) -> bool:
+        tasks = [task for task, _ in self._task_registry.all() if not task.done()]
+        for task in tasks:
+            if not task.cancelling():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        return bool(tasks)
+
     # 执行 agent run 并返回 RunOutcome（含最终文字结果）
     async def run_and_capture(
         self,
@@ -150,6 +164,12 @@ class AgentRunner:
         system_prompt_override: str | None = None,
         tool_whitelist: list[str] | None = None,
     ) -> RunOutcome:
+        if session is not None and session.model:
+            self._config = replace(
+                self._config, llm=replace(self._config.llm, default_model=session.model),
+            )
+        if session is not None and self._permission_manager is not None:
+            self._permission_manager.set_session_mode(session.id, session.permission_mode)
         run_id = run_id or new_run_id()
         if session is not None and store is not None:
             run_path = store.runs_dir(session.id) / run_id
@@ -184,7 +204,14 @@ class AgentRunner:
 
         async with EventWriter(run_path / "events.jsonl") as writer:
             writer.subscribe(bus)
-            await bus.publish(RunStartedEvent(run_id=run_id, goal=goal, ts=_now()))
+            await bus.publish(
+                RunStartedEvent(
+                    run_id=run_id,
+                    goal=goal,
+                    ts=_now(),
+                    session_id=session.id if session is not None else None,
+                )
+            )
 
             cancelled = False
             try:
@@ -230,6 +257,9 @@ class AgentRunner:
                 await loop.run(context)
             except asyncio.CancelledError:
                 cancelled = True
+                await self.cancel_background()
+                if self._permission_manager is not None and session is not None:
+                    self._permission_manager.cancel_session(session.id, reason="user_cancelled")
                 if not context.is_done():
                     context.mark_failed("cancelled")
             except Exception:
@@ -250,6 +280,21 @@ class AgentRunner:
             )
 
         if session is not None and store is not None:
+            if cancelled:
+                pending: set[str] = set()
+                for message in context.messages:
+                    blocks = message.get("content")
+                    if not isinstance(blocks, list):
+                        continue
+                    for block in blocks:
+                        if block.get("type") == "tool_use":
+                            pending.add(str(block["id"]))
+                        elif block.get("type") == "tool_result":
+                            pending.discard(str(block["tool_use_id"]))
+                for tool_use_id in pending:
+                    context.add_tool_result(
+                        tool_use_id, "Tool execution cancelled by the user.", is_error=True,
+                    )
             store.append_messages(session.id, context.messages[prefill_len:], run_id=run_id)
 
         if cancelled:

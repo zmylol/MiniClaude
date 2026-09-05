@@ -15,14 +15,20 @@ dependencies = [
     "python-dotenv>=1.0",  # .env 文件解析
     "anthropic>=0.25",     # Anthropic LLM SDK（流式 + prompt caching）
     "textual>=0.75",       # 终端 UI 框架（mini-tui）
+    "aiohttp>=3.12,<4",    # 浏览器 UI 与 WebSocket 事件流网关（mini-web）
     "httpx[socks]>=0.28.1",
 ]
 
-# 安装后可在 PATH 中执行的入口：`mini` / `mini-core` / `mini-tui`
+[project.optional-dependencies]
+desktop = ["pywebview>=6,<7"] # 使用系统 WebView 提供独立桌面窗口
+
+# 安装后可在 PATH 中执行 CLI、TUI、浏览器和原生桌面入口
 [project.scripts]
 mini = "mini_claude.cli.main:main"
 mini-core = "mini_claude.core.app:run"
 mini-tui = "mini_claude.tui.__main__:main"
+mini-web = "mini_claude.web.__main__:main"
+mini-desktop = "mini_claude.desktop.__main__:main"
 
 # ---- Hatch：打 wheel 时从 src 布局收录包 ----
 [tool.hatch.build.targets.wheel]

@@ -162,6 +162,27 @@ TUI 会连接正在运行的 `mini-core`，创建 chat session，并实时显示
 uv run mini-tui --replay <run-id>
 ```
 
+### 打开桌面应用
+
+macOS 上可以使用独立的 MiniClaude 应用窗口，界面参考 Codex 桌面版，通过事件流
+实时显示对话、工具执行和权限审批。应用自动连接或启动当前项目的 core。
+支持系统文件夹选择、项目切换与从列表移除、文件和图片附件、重启续聊、停止任务、模型和权限设置，
+以及 Git 改动、PR 列表、定时任务和 MCP 服务管理。
+
+```bash
+uv sync --extra desktop
+uv run --extra desktop mini-desktop
+```
+
+生成可双击的本机应用入口：
+
+```bash
+.venv/bin/python scripts/build_macos_app.py
+```
+
+随后打开 `dist/MiniClaude.app`。此启动器依赖当前项目及 `.venv`。
+界面能力、运行方式与架构见 [桌面应用说明](docs/DESKTOP.md)。
+
 ### 运行一次性任务
 
 ```bash
