@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -50,19 +52,24 @@ class BashTool(BaseTool):
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True,
             )
             try:
                 stdout_bytes, _ = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout
                 )
             except TimeoutError:
-                proc.kill()
+                self._kill_process_group(proc)
                 await proc.communicate()
                 return ToolResult(
                     content=f"[timeout after {timeout}s]",
                     is_error=True,
                     error_type="timeout",
                 )
+            except asyncio.CancelledError:
+                self._kill_process_group(proc)
+                await proc.communicate()
+                raise
         except Exception as exc:
             return ToolResult(content=str(exc), is_error=True, error_type="runtime_error")
 
@@ -79,3 +86,11 @@ class BashTool(BaseTool):
                 error_type="runtime_error",
             )
         return ToolResult(content=output or "[no output]")
+
+    # 终止独立 shell 进程组，防止停止任务后派生的子进程继续修改文件
+    @staticmethod
+    def _kill_process_group(proc: asyncio.subprocess.Process) -> None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass

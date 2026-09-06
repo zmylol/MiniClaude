@@ -61,6 +61,7 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 | `server_version` | `string` | yes |
 | `uptime_ms` | `integer` | yes |
 | `received_at` | `string` | yes |
+| `project_path` | `string | null` | no |
 
 ```json
 {
@@ -76,6 +77,18 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
     "received_at": {
       "title": "Received At",
       "type": "string"
+    },
+    "project_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Path"
     }
   },
   "required": [
@@ -297,6 +310,8 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 | `type` | `string` | no |
 | `mode` | `string` | no |
 | `title` | `string` | no |
+| `model` | `string | null` | no |
+| `permission_mode` | `string` | no |
 
 ```json
 {
@@ -319,6 +334,31 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
     "title": {
       "default": "",
       "title": "Title",
+      "type": "string"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "permission_mode": {
+      "default": "ask",
+      "enum": [
+        "ask",
+        "read_only",
+        "full_access"
+      ],
+      "title": "Permission Mode",
       "type": "string"
     }
   },
@@ -347,6 +387,8 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 |---|---|---|
 | `session_id` | `string` | yes |
 | `status` | `string` | yes |
+| `model` | `string` | no |
+| `permission_mode` | `string` | no |
 
 ```json
 {
@@ -362,6 +404,21 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
         "closed"
       ],
       "title": "Status",
+      "type": "string"
+    },
+    "model": {
+      "default": "",
+      "title": "Model",
+      "type": "string"
+    },
+    "permission_mode": {
+      "default": "ask",
+      "enum": [
+        "ask",
+        "read_only",
+        "full_access"
+      ],
+      "title": "Permission Mode",
       "type": "string"
     }
   },
@@ -394,9 +451,43 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 | `type` | `string` | no |
 | `session_id` | `string` | yes |
 | `content` | `string` | yes |
+| `attachments` | `array` | no |
 
 ```json
 {
+  "$defs": {
+    "ImageAttachment": {
+      "properties": {
+        "name": {
+          "maxLength": 255,
+          "title": "Name",
+          "type": "string"
+        },
+        "media_type": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif"
+          ],
+          "title": "Media Type",
+          "type": "string"
+        },
+        "data": {
+          "maxLength": 7000000,
+          "title": "Data",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "media_type",
+        "data"
+      ],
+      "title": "ImageAttachment",
+      "type": "object"
+    }
+  },
   "properties": {
     "type": {
       "const": "session.send_message",
@@ -411,6 +502,14 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
     "content": {
       "title": "Content",
       "type": "string"
+    },
+    "attachments": {
+      "items": {
+        "$ref": "#/$defs/ImageAttachment"
+      },
+      "maxItems": 5,
+      "title": "Attachments",
+      "type": "array"
     }
   },
   "required": [
@@ -441,6 +540,9 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 | Field | Type | Required |
 |---|---|---|
 | `run_id` | `string` | yes |
+| `cancelled` | `boolean` | no |
+| `status` | `string | null` | no |
+| `reason` | `string | null` | no |
 
 ```json
 {
@@ -448,6 +550,35 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
     "run_id": {
       "title": "Run Id",
       "type": "string"
+    },
+    "cancelled": {
+      "default": false,
+      "title": "Cancelled",
+      "type": "boolean"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
     }
   },
   "required": [
@@ -580,6 +711,2050 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
   "type": "object"
 }
 ```
+### SessionListCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.list",
+      "default": "session.list",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "SessionListCommand",
+  "type": "object"
+}
+```
+
+### SessionListResult
+
+| Field | Type | Required |
+|---|---|---|
+| `sessions` | `array` | yes |
+| `project_path` | `string` | yes |
+
+```json
+{
+  "$defs": {
+    "PendingPermission": {
+      "properties": {
+        "tool_use_id": {
+          "title": "Tool Use Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "param_preview": {
+          "title": "Param Preview",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "required": [
+        "tool_use_id",
+        "tool_name",
+        "params",
+        "param_preview"
+      ],
+      "title": "PendingPermission",
+      "type": "object"
+    },
+    "SessionSummary": {
+      "properties": {
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "waiting_for_input",
+            "closed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "one_shot",
+            "chat"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "permission_mode": {
+          "enum": [
+            "ask",
+            "read_only",
+            "full_access"
+          ],
+          "title": "Permission Mode",
+          "type": "string"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "run_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Run Ids",
+          "type": "array"
+        },
+        "running": {
+          "default": false,
+          "title": "Running",
+          "type": "boolean"
+        },
+        "active_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active Run Id"
+        },
+        "pending_permissions": {
+          "items": {
+            "$ref": "#/$defs/PendingPermission"
+          },
+          "title": "Pending Permissions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "title",
+        "status",
+        "mode",
+        "model",
+        "permission_mode",
+        "project_path",
+        "created_at",
+        "updated_at",
+        "run_ids"
+      ],
+      "title": "SessionSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "sessions": {
+      "items": {
+        "$ref": "#/$defs/SessionSummary"
+      },
+      "title": "Sessions",
+      "type": "array"
+    },
+    "project_path": {
+      "title": "Project Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessions",
+    "project_path"
+  ],
+  "title": "SessionListResult",
+  "type": "object"
+}
+```
+
+### SessionRenameCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `title` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.rename",
+      "default": "session.rename",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "title"
+  ],
+  "title": "SessionRenameCommand",
+  "type": "object"
+}
+```
+
+### SessionConfigureCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+| `model` | `string | null` | no |
+| `permission_mode` | `string | null` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.configure",
+      "default": "session.configure",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "permission_mode": {
+      "anyOf": [
+        {
+          "enum": [
+            "ask",
+            "read_only",
+            "full_access"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Permission Mode"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionConfigureCommand",
+  "type": "object"
+}
+```
+
+### SessionUpdateResult
+
+| Field | Type | Required |
+|---|---|---|
+| `session` | `object` | yes |
+
+```json
+{
+  "$defs": {
+    "PendingPermission": {
+      "properties": {
+        "tool_use_id": {
+          "title": "Tool Use Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "param_preview": {
+          "title": "Param Preview",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        }
+      },
+      "required": [
+        "tool_use_id",
+        "tool_name",
+        "params",
+        "param_preview"
+      ],
+      "title": "PendingPermission",
+      "type": "object"
+    },
+    "SessionSummary": {
+      "properties": {
+        "session_id": {
+          "title": "Session Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "waiting_for_input",
+            "closed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "one_shot",
+            "chat"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "permission_mode": {
+          "enum": [
+            "ask",
+            "read_only",
+            "full_access"
+          ],
+          "title": "Permission Mode",
+          "type": "string"
+        },
+        "project_path": {
+          "title": "Project Path",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "string"
+        },
+        "run_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Run Ids",
+          "type": "array"
+        },
+        "running": {
+          "default": false,
+          "title": "Running",
+          "type": "boolean"
+        },
+        "active_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active Run Id"
+        },
+        "pending_permissions": {
+          "items": {
+            "$ref": "#/$defs/PendingPermission"
+          },
+          "title": "Pending Permissions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "title",
+        "status",
+        "mode",
+        "model",
+        "permission_mode",
+        "project_path",
+        "created_at",
+        "updated_at",
+        "run_ids"
+      ],
+      "title": "SessionSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "session": {
+      "$ref": "#/$defs/SessionSummary"
+    }
+  },
+  "required": [
+    "session"
+  ],
+  "title": "SessionUpdateResult",
+  "type": "object"
+}
+```
+
+### SessionDeleteCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.delete",
+      "default": "session.delete",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionDeleteCommand",
+  "type": "object"
+}
+```
+
+### SessionDeleteResult
+
+| Field | Type | Required |
+|---|---|---|
+| `deleted` | `boolean` | no |
+
+```json
+{
+  "properties": {
+    "deleted": {
+      "default": true,
+      "title": "Deleted",
+      "type": "boolean"
+    }
+  },
+  "title": "SessionDeleteResult",
+  "type": "object"
+}
+```
+
+### SessionCancelCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `session_id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "session.cancel",
+      "default": "session.cancel",
+      "title": "Type",
+      "type": "string"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "title": "SessionCancelCommand",
+  "type": "object"
+}
+```
+
+### SessionCancelResult
+
+| Field | Type | Required |
+|---|---|---|
+| `cancelled` | `boolean` | yes |
+
+```json
+{
+  "properties": {
+    "cancelled": {
+      "title": "Cancelled",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cancelled"
+  ],
+  "title": "SessionCancelResult",
+  "type": "object"
+}
+```
+
+### ConfigModelsCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "config.models",
+      "default": "config.models",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "ConfigModelsCommand",
+  "type": "object"
+}
+```
+
+### ConfigModelsResult
+
+| Field | Type | Required |
+|---|---|---|
+| `current_model` | `string` | yes |
+| `models` | `array` | yes |
+| `allow_custom` | `boolean` | no |
+
+```json
+{
+  "$defs": {
+    "ModelOption": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "ModelOption",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "current_model": {
+      "title": "Current Model",
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/ModelOption"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "allow_custom": {
+      "default": true,
+      "title": "Allow Custom",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "current_model",
+    "models"
+  ],
+  "title": "ConfigModelsResult",
+  "type": "object"
+}
+```
+
+### PluginsListCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "plugins.list",
+      "default": "plugins.list",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "PluginsListCommand",
+  "type": "object"
+}
+```
+
+### PluginsAddCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `name` | `string` | yes |
+| `transport` | `string` | yes |
+| `command` | `string` | no |
+| `args` | `array` | no |
+| `host` | `string` | no |
+| `port` | `integer` | no |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "plugins.add",
+      "default": "plugins.add",
+      "title": "Type",
+      "type": "string"
+    },
+    "name": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+      "title": "Name",
+      "type": "string"
+    },
+    "transport": {
+      "enum": [
+        "stdio",
+        "tcp"
+      ],
+      "title": "Transport",
+      "type": "string"
+    },
+    "command": {
+      "default": "",
+      "title": "Command",
+      "type": "string"
+    },
+    "args": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 128,
+      "title": "Args",
+      "type": "array"
+    },
+    "host": {
+      "default": "127.0.0.1",
+      "minLength": 1,
+      "title": "Host",
+      "type": "string"
+    },
+    "port": {
+      "default": 3000,
+      "maximum": 65535,
+      "minimum": 1,
+      "title": "Port",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "name",
+    "transport"
+  ],
+  "title": "PluginsAddCommand",
+  "type": "object"
+}
+```
+
+### PluginsSetEnabledCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `name` | `string` | yes |
+| `enabled` | `boolean` | yes |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "plugins.set_enabled",
+      "default": "plugins.set_enabled",
+      "title": "Type",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name",
+    "enabled"
+  ],
+  "title": "PluginsSetEnabledCommand",
+  "type": "object"
+}
+```
+
+### PluginsRemoveCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `name` | `string` | yes |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "plugins.remove",
+      "default": "plugins.remove",
+      "title": "Type",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "PluginsRemoveCommand",
+  "type": "object"
+}
+```
+
+### PluginsResult
+
+| Field | Type | Required |
+|---|---|---|
+| `servers` | `array` | yes |
+
+```json
+{
+  "$defs": {
+    "PluginInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "transport": {
+          "enum": [
+            "stdio",
+            "tcp"
+          ],
+          "title": "Transport",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "connected",
+            "disabled",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "managed": {
+          "title": "Managed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "transport",
+        "status",
+        "tools",
+        "managed"
+      ],
+      "title": "PluginInfo",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "servers": {
+      "items": {
+        "$ref": "#/$defs/PluginInfo"
+      },
+      "title": "Servers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "servers"
+  ],
+  "title": "PluginsResult",
+  "type": "object"
+}
+```
+
+### WorkspaceListCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.list",
+      "default": "workspace.list",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "WorkspaceListCommand",
+  "type": "object"
+}
+```
+
+### WorkspacePickCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.pick",
+      "default": "workspace.pick",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "WorkspacePickCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceSelectCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `path` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.select",
+      "default": "workspace.select",
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "title": "WorkspaceSelectCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceRemoveCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `path` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.remove",
+      "default": "workspace.remove",
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "title": "WorkspaceRemoveCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceFilesCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `path` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.files",
+      "default": "workspace.files",
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "title": "WorkspaceFilesCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceGitStatusCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.git_status",
+      "default": "workspace.git_status",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "WorkspaceGitStatusCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceGitDiffCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `path` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.git_diff",
+      "default": "workspace.git_diff",
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "title": "WorkspaceGitDiffCommand",
+  "type": "object"
+}
+```
+
+### WorkspacePullRequestsCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.pull_requests",
+      "default": "workspace.pull_requests",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "WorkspacePullRequestsCommand",
+  "type": "object"
+}
+```
+
+### WorkspaceListResult
+
+| Field | Type | Required |
+|---|---|---|
+| `projects` | `array` | yes |
+| `current_path` | `string | null` | yes |
+| `project_selected` | `boolean` | no |
+
+```json
+{
+  "$defs": {
+    "WorkspaceProject": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name"
+      ],
+      "title": "WorkspaceProject",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProject"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "current_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Path"
+    },
+    "project_selected": {
+      "default": true,
+      "title": "Project Selected",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "projects",
+    "current_path"
+  ],
+  "title": "WorkspaceListResult",
+  "type": "object"
+}
+```
+
+### WorkspaceInfoResult
+
+| Field | Type | Required |
+|---|---|---|
+| `project_name` | `string` | yes |
+| `project_path` | `string | null` | yes |
+| `project_selected` | `boolean` | no |
+| `model` | `string` | yes |
+| `core_host` | `string` | yes |
+| `core_port` | `integer` | yes |
+
+```json
+{
+  "properties": {
+    "project_name": {
+      "title": "Project Name",
+      "type": "string"
+    },
+    "project_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Project Path"
+    },
+    "project_selected": {
+      "default": true,
+      "title": "Project Selected",
+      "type": "boolean"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "core_host": {
+      "title": "Core Host",
+      "type": "string"
+    },
+    "core_port": {
+      "title": "Core Port",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_name",
+    "project_path",
+    "model",
+    "core_host",
+    "core_port"
+  ],
+  "title": "WorkspaceInfoResult",
+  "type": "object"
+}
+```
+
+### WorkspacePickCancelledResult
+
+| Field | Type | Required |
+|---|---|---|
+| `cancelled` | `boolean` | no |
+
+```json
+{
+  "properties": {
+    "cancelled": {
+      "const": true,
+      "default": true,
+      "title": "Cancelled",
+      "type": "boolean"
+    }
+  },
+  "title": "WorkspacePickCancelledResult",
+  "type": "object"
+}
+```
+
+### WorkspaceFilesResult
+
+| Field | Type | Required |
+|---|---|---|
+| `entries` | `array` | yes |
+
+```json
+{
+  "$defs": {
+    "WorkspaceFileEntry": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "size": {
+          "title": "Size",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "size"
+      ],
+      "title": "WorkspaceFileEntry",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceFileEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    }
+  },
+  "required": [
+    "entries"
+  ],
+  "title": "WorkspaceFilesResult",
+  "type": "object"
+}
+```
+
+### WorkspaceGitStatusResult
+
+| Field | Type | Required |
+|---|---|---|
+| `available` | `boolean` | yes |
+| `branch` | `string` | yes |
+| `files` | `array` | yes |
+| `reason` | `string | null` | no |
+
+```json
+{
+  "$defs": {
+    "WorkspaceGitFile": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "status"
+      ],
+      "title": "WorkspaceGitFile",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "branch": {
+      "title": "Branch",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceGitFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "available",
+    "branch",
+    "files"
+  ],
+  "title": "WorkspaceGitStatusResult",
+  "type": "object"
+}
+```
+
+### WorkspaceGitDiffResult
+
+| Field | Type | Required |
+|---|---|---|
+| `diff` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "diff": {
+      "title": "Diff",
+      "type": "string"
+    }
+  },
+  "required": [
+    "diff"
+  ],
+  "title": "WorkspaceGitDiffResult",
+  "type": "object"
+}
+```
+
+### WorkspacePullRequestsResult
+
+| Field | Type | Required |
+|---|---|---|
+| `available` | `boolean` | yes |
+| `items` | `array` | yes |
+| `reason` | `string | null` | no |
+
+```json
+{
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "items": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "available",
+    "items"
+  ],
+  "title": "WorkspacePullRequestsResult",
+  "type": "object"
+}
+```
+
+### WorkspaceRemoveResult
+
+| Field | Type | Required |
+|---|---|---|
+| `projects` | `array` | yes |
+| `current_path` | `string | null` | yes |
+| `project_selected` | `boolean` | no |
+| `project_name` | `string` | yes |
+| `project_path` | `string | null` | yes |
+| `model` | `string` | yes |
+| `core_host` | `string` | yes |
+| `core_port` | `integer` | yes |
+
+```json
+{
+  "$defs": {
+    "WorkspaceProject": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name"
+      ],
+      "title": "WorkspaceProject",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProject"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "current_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Path"
+    },
+    "project_selected": {
+      "default": true,
+      "title": "Project Selected",
+      "type": "boolean"
+    },
+    "project_name": {
+      "title": "Project Name",
+      "type": "string"
+    },
+    "project_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Project Path"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "core_host": {
+      "title": "Core Host",
+      "type": "string"
+    },
+    "core_port": {
+      "title": "Core Port",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "projects",
+    "current_path",
+    "project_name",
+    "project_path",
+    "model",
+    "core_host",
+    "core_port"
+  ],
+  "title": "WorkspaceRemoveResult",
+  "type": "object"
+}
+```
+
+### SchedulesListCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "schedules.list",
+      "default": "schedules.list",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "title": "SchedulesListCommand",
+  "type": "object"
+}
+```
+
+### ScheduleCreateCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `title` | `string` | yes |
+| `prompt` | `string` | yes |
+| `next_run` | `string` | yes |
+| `repeat` | `string` | no |
+| `enabled` | `boolean` | no |
+| `type` | `string` | no |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 20000,
+      "minLength": 1,
+      "title": "Prompt",
+      "type": "string"
+    },
+    "next_run": {
+      "format": "date-time",
+      "title": "Next Run",
+      "type": "string"
+    },
+    "repeat": {
+      "default": "once",
+      "enum": [
+        "once",
+        "daily"
+      ],
+      "title": "Repeat",
+      "type": "string"
+    },
+    "enabled": {
+      "default": true,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "type": {
+      "const": "schedules.create",
+      "default": "schedules.create",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "prompt",
+    "next_run"
+  ],
+  "title": "ScheduleCreateCommand",
+  "type": "object"
+}
+```
+
+### ScheduleUpdateCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `id` | `string` | yes |
+| `title` | `string | null` | no |
+| `prompt` | `string | null` | no |
+| `next_run` | `string | null` | no |
+| `repeat` | `string | null` | no |
+| `enabled` | `boolean | null` | no |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "schedules.update",
+      "default": "schedules.update",
+      "title": "Type",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "title": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Title"
+    },
+    "prompt": {
+      "anyOf": [
+        {
+          "maxLength": 20000,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prompt"
+    },
+    "next_run": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Run"
+    },
+    "repeat": {
+      "anyOf": [
+        {
+          "enum": [
+            "once",
+            "daily"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Repeat"
+    },
+    "enabled": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Enabled"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "ScheduleUpdateCommand",
+  "type": "object"
+}
+```
+
+### ScheduleDeleteCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `id` | `string` | yes |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "schedules.delete",
+      "default": "schedules.delete",
+      "title": "Type",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "ScheduleDeleteCommand",
+  "type": "object"
+}
+```
+
+### ScheduleRunNowCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `id` | `string` | yes |
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "schedules.run_now",
+      "default": "schedules.run_now",
+      "title": "Type",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "ScheduleRunNowCommand",
+  "type": "object"
+}
+```
+
+### SchedulesListResult
+
+| Field | Type | Required |
+|---|---|---|
+| `schedules` | `array` | yes |
+| `runs_only_while_open` | `boolean` | no |
+
+```json
+{
+  "$defs": {
+    "Schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "next_run": {
+          "format": "date-time",
+          "title": "Next Run",
+          "type": "string"
+        },
+        "repeat": {
+          "default": "once",
+          "enum": [
+            "once",
+            "daily"
+          ],
+          "title": "Repeat",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "scheduled",
+          "enum": [
+            "scheduled",
+            "submitting",
+            "running",
+            "success",
+            "submitted",
+            "error",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run"
+        },
+        "last_session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Session Id"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        }
+      },
+      "required": [
+        "title",
+        "prompt",
+        "next_run",
+        "id"
+      ],
+      "title": "Schedule",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schedules": {
+      "items": {
+        "$ref": "#/$defs/Schedule"
+      },
+      "title": "Schedules",
+      "type": "array"
+    },
+    "runs_only_while_open": {
+      "default": true,
+      "title": "Runs Only While Open",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schedules"
+  ],
+  "title": "SchedulesListResult",
+  "type": "object"
+}
+```
+
+### ScheduleResult
+
+| Field | Type | Required |
+|---|---|---|
+| `schedule` | `object` | yes |
+| `runs_only_while_open` | `boolean` | no |
+
+```json
+{
+  "$defs": {
+    "Schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "next_run": {
+          "format": "date-time",
+          "title": "Next Run",
+          "type": "string"
+        },
+        "repeat": {
+          "default": "once",
+          "enum": [
+            "once",
+            "daily"
+          ],
+          "title": "Repeat",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "scheduled",
+          "enum": [
+            "scheduled",
+            "submitting",
+            "running",
+            "success",
+            "submitted",
+            "error",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run"
+        },
+        "last_session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Session Id"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        }
+      },
+      "required": [
+        "title",
+        "prompt",
+        "next_run",
+        "id"
+      ],
+      "title": "Schedule",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schedule": {
+      "$ref": "#/$defs/Schedule"
+    },
+    "runs_only_while_open": {
+      "default": true,
+      "title": "Runs Only While Open",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schedule"
+  ],
+  "title": "ScheduleResult",
+  "type": "object"
+}
+```
+
+### ScheduleDeleteResult
+
+| Field | Type | Required |
+|---|---|---|
+| `deleted` | `boolean` | yes |
+| `id` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "deleted": {
+      "title": "Deleted",
+      "type": "boolean"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "deleted",
+    "id"
+  ],
+  "title": "ScheduleDeleteResult",
+  "type": "object"
+}
+```
 
 ## Server Push
 
@@ -667,6 +2842,307 @@ Events sent over the IPC socket (daemon → client).
   "type": "object"
 }
 ```
+### WorkspaceChangedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `project_name` | `string` | yes |
+| `project_path` | `string | null` | yes |
+| `project_selected` | `boolean` | no |
+| `model` | `string` | yes |
+| `core_host` | `string` | yes |
+| `core_port` | `integer` | yes |
+| `type` | `string` | no |
+
+```json
+{
+  "properties": {
+    "project_name": {
+      "title": "Project Name",
+      "type": "string"
+    },
+    "project_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Project Path"
+    },
+    "project_selected": {
+      "default": true,
+      "title": "Project Selected",
+      "type": "boolean"
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "core_host": {
+      "title": "Core Host",
+      "type": "string"
+    },
+    "core_port": {
+      "title": "Core Port",
+      "type": "integer"
+    },
+    "type": {
+      "const": "workspace.changed",
+      "default": "workspace.changed",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_name",
+    "project_path",
+    "model",
+    "core_host",
+    "core_port"
+  ],
+  "title": "WorkspaceChangedEvent",
+  "type": "object"
+}
+```
+### WorkspaceProjectsChangedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `projects` | `array` | yes |
+| `current_path` | `string | null` | yes |
+| `project_selected` | `boolean` | no |
+| `type` | `string` | no |
+
+```json
+{
+  "$defs": {
+    "WorkspaceProject": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name"
+      ],
+      "title": "WorkspaceProject",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "projects": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceProject"
+      },
+      "title": "Projects",
+      "type": "array"
+    },
+    "current_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Current Path"
+    },
+    "project_selected": {
+      "default": true,
+      "title": "Project Selected",
+      "type": "boolean"
+    },
+    "type": {
+      "const": "workspace.projects_changed",
+      "default": "workspace.projects_changed",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "projects",
+    "current_path"
+  ],
+  "title": "WorkspaceProjectsChangedEvent",
+  "type": "object"
+}
+```
+### ScheduleChangedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `project_path` | `string` | yes |
+| `schedule` | `? | null` | no |
+| `deleted` | `boolean` | no |
+| `id` | `string | null` | no |
+| `runs_only_while_open` | `boolean` | no |
+
+```json
+{
+  "$defs": {
+    "Schedule": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "prompt": {
+          "maxLength": 20000,
+          "minLength": 1,
+          "title": "Prompt",
+          "type": "string"
+        },
+        "next_run": {
+          "format": "date-time",
+          "title": "Next Run",
+          "type": "string"
+        },
+        "repeat": {
+          "default": "once",
+          "enum": [
+            "once",
+            "daily"
+          ],
+          "title": "Repeat",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "scheduled",
+          "enum": [
+            "scheduled",
+            "submitting",
+            "running",
+            "success",
+            "submitted",
+            "error",
+            "interrupted"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Run"
+        },
+        "last_session_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Session Id"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Error"
+        }
+      },
+      "required": [
+        "title",
+        "prompt",
+        "next_run",
+        "id"
+      ],
+      "title": "Schedule",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "type": {
+      "const": "schedules.changed",
+      "default": "schedules.changed",
+      "title": "Type",
+      "type": "string"
+    },
+    "project_path": {
+      "title": "Project Path",
+      "type": "string"
+    },
+    "schedule": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Schedule"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "deleted": {
+      "default": false,
+      "title": "Deleted",
+      "type": "boolean"
+    },
+    "id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Id"
+    },
+    "runs_only_while_open": {
+      "default": true,
+      "title": "Runs Only While Open",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "project_path"
+  ],
+  "title": "ScheduleChangedEvent",
+  "type": "object"
+}
+```
 
 ## Run Events
 
@@ -680,6 +3156,7 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 | `run_id` | `string` | yes |
 | `goal` | `string` | yes |
 | `ts` | `string` | yes |
+| `session_id` | `string | null` | no |
 
 ```json
 {
@@ -701,6 +3178,18 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "ts": {
       "title": "Ts",
       "type": "string"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
     }
   },
   "required": [

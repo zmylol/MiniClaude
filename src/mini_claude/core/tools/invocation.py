@@ -112,6 +112,7 @@ async def invoke_tool(
             params=dict(tool_call.input),
             session_id=session_id,
             event_emitter=_emit_permission,
+            run_id=run_id,
         )
         if allowed:
             if decision not in ("auto_allow",):

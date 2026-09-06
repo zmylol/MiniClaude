@@ -4,6 +4,12 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Discriminator
 
+from mini_claude.core.bus.schedule_commands import ScheduleChangedEvent
+from mini_claude.core.bus.workspace_commands import (
+    WorkspaceChangedEvent,
+    WorkspaceProjectsChangedEvent,
+)
+
 
 class CoreStartedEvent(BaseModel):
     type: Literal["core.started"] = "core.started"
@@ -16,6 +22,7 @@ class RunStartedEvent(BaseModel):
     run_id: str
     goal: str
     ts: str  # ISO 8601
+    session_id: str | None = None
 
 
 class RunFinishedEvent(BaseModel):
@@ -228,6 +235,9 @@ Event = Annotated[
     | PermissionDeniedEvent
     | SubagentStartedEvent
     | SubagentFinishedEvent
-    | SkillInvokedEvent,
+    | SkillInvokedEvent
+    | WorkspaceChangedEvent
+    | WorkspaceProjectsChangedEvent
+    | ScheduleChangedEvent,
     Discriminator("type"),
 ]

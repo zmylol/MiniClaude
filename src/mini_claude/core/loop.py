@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -8,9 +9,9 @@ from mini_claude.core.bus.events import StepFinishedEvent, StepStartedEvent
 from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.llm.base import LLMProvider
+from mini_claude.core.tools.base import ToolResult
 from mini_claude.core.tools.invocation import invoke_tool
 from mini_claude.core.tools.registry import ToolRegistry
-import logging
 
 if TYPE_CHECKING:
     from mini_claude.core.compact.compactor import Compactor
@@ -65,6 +66,11 @@ class AgentLoop:
                         "Use the available tools to complete the user's goal. "
                         "When the goal is fully achieved, respond with a final answer "
                         "and do not call any more tools."
+                    ) + (
+                        "\n\nTools requested in the same response execute concurrently. "
+                        "Group independent tool calls in one response. "
+                        "For calls that depend on each other or modify the same resource, "
+                        "use separate turns and wait for earlier results."
                     ),
                 )
             except asyncio.CancelledError:
@@ -88,15 +94,28 @@ class AgentLoop:
                 )
             context.add_assistant_message(blocks)
 
-            # [act] execute each requested tool; errors become tool results so loop continues
+            # [act] run independent calls together; tool errors remain individual results
             if response.stop_reason == "tool_use":
-                for tc in response.tool_calls:
-                    result = await invoke_tool(
-                        self._registry, tc, self._bus, context.run_id,
-                        permission_manager=self._permission_manager,
-                        session_id=self._session_id,
-                    )
-                    context.add_tool_result(tc.id, result.content, is_error=result.is_error)
+                tasks: list[asyncio.Task[ToolResult]] = []
+                try:
+                    async with asyncio.TaskGroup() as group:
+                        for tc in response.tool_calls:
+                            tasks.append(group.create_task(invoke_tool(
+                                self._registry, tc, self._bus, context.run_id,
+                                permission_manager=self._permission_manager,
+                                session_id=self._session_id,
+                            )))
+                    if any(task.cancelled() for task in tasks):
+                        raise asyncio.CancelledError
+                except asyncio.CancelledError:
+                    context.mark_failed("cancelled")
+                    raise
+                finally:
+                    # Keep request order, including completed results when the batch is cancelled.
+                    for tc, task in zip(response.tool_calls, tasks):
+                        if task.done() and not task.cancelled() and task.exception() is None:
+                            result = task.result()
+                            context.add_tool_result(tc.id, result.content, is_error=result.is_error)
             elif response.stop_reason == "max_tokens" and response.tool_calls:
                 # Output token limit hit mid-tool-call; input is incomplete.
                 # Add synthetic error results so the conversation stays balanced.

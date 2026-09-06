@@ -5,6 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from mini_claude.core.bus.events import RunStartedEvent
 from mini_claude.core.config import MiniConfig
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.llm.types import LlmResponse, ToolCallBlock
@@ -116,6 +117,53 @@ async def test_run_started_event_published(tmp_path: Path) -> None:
     assert "run.started" in types
     started = next(e for e in events if e.type == "run.started")  # type: ignore[attr-defined]
     assert started.goal == "my goal"  # type: ignore[attr-defined]
+    assert started.session_id is None  # type: ignore[attr-defined]
+
+
+# 功能：兼容未包含 session_id 的历史 run.started 事件
+def test_run_started_event_without_session_is_backward_compatible() -> None:
+    started = RunStartedEvent.model_validate(
+        {"type": "run.started", "run_id": "run-old", "goal": "goal", "ts": "t"}
+    )
+    assert started.session_id is None
+
+
+# 功能：发布并持久化所属 session_id，让前端准确路由运行事件
+async def test_run_started_event_identifies_session(tmp_path: Path) -> None:
+    from mini_claude.core.session.model import Session
+    from mini_claude.core.session.store import SessionStore
+
+    store = SessionStore(tmp_path / "sessions")
+    session = Session(
+        id="sess-web",
+        mode="chat",
+        status="active",
+        title="",
+        created_at="t",
+        updated_at="t",
+    )
+    store.write_meta(session)
+    store.append_message(session.id, "user", "goal")
+    started_events: list[RunStartedEvent] = []
+
+    async def collect(event: BaseModel) -> None:
+        if isinstance(event, RunStartedEvent):
+            started_events.append(event)
+
+    runner = AgentRunner(
+        _config(),
+        provider=_EndTurnProvider(),  # type: ignore[arg-type]
+        extra_handlers=[collect],
+        runs_dir=tmp_path / "runs",
+    )
+    await runner.run_and_capture("goal", run_id="run-web", session=session, store=store)
+
+    assert len(started_events) == 1
+    assert started_events[0].run_id == "run-web"
+    assert started_events[0].session_id == session.id
+    event_log = store.runs_dir(session.id) / "run-web" / "events.jsonl"
+    persisted = json.loads(event_log.read_text().splitlines()[0])
+    assert persisted["session_id"] == session.id
 
 
 # 功能：验证成功完成时发布 status=success 的 run.finished 事件

@@ -170,17 +170,8 @@ class SpawnAgentTool(BaseTool):
                 )
             )
 
-        async with EventWriter(child_run_path / "events.jsonl") as writer:
-            writer.subscribe(child_bus)
-            await child_loop.run(child_context)
-
-        await self._parent_bus.publish(
-            SubagentFinishedEvent(
-                run_id=child_run_id,
-                parent_run_id=self._parent_run_id,
-                status=child_context.status,
-                ts=_now(),
-            )
+        await self._run_background(
+            child_loop, child_context, child_bus, child_run_path, child_run_id,
         )
 
         if child_context.status == "success":
@@ -205,17 +196,22 @@ class SpawnAgentTool(BaseTool):
         run_path: Path,
         run_id: str,
     ) -> None:
-        async with EventWriter(run_path / "events.jsonl") as writer:
-            writer.subscribe(bus)
-            await loop.run(context)
-        await self._parent_bus.publish(
-            SubagentFinishedEvent(
-                run_id=run_id,
-                parent_run_id=self._parent_run_id,
-                status=context.status,
-                ts=_now(),
+        try:
+            async with EventWriter(run_path / "events.jsonl") as writer:
+                writer.subscribe(bus)
+                await loop.run(context)
+        except asyncio.CancelledError:
+            context.mark_failed("cancelled")
+            raise
+        finally:
+            await self._parent_bus.publish(
+                SubagentFinishedEvent(
+                    run_id=run_id,
+                    parent_run_id=self._parent_run_id,
+                    status=context.status,
+                    ts=_now(),
+                )
             )
-        )
 
     # 构造子 registry；基于角色配置过滤工具，深度允许时注册嵌套 SpawnAgentTool
     def _build_child_registry(

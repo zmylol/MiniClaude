@@ -54,6 +54,7 @@ MiniClaude 的核心设计目标是把一个 agent 拆成清晰的本地系统�
 | Event stream | run、step、tool、LLM token、permission、context compaction 等事件实时推送 |
 | Trace | 默认写入 `~/.mini/traces/daemon.jsonl`，可用 `mini trace` 查看和过滤 |
 | Built-in tools | `read_file`、`write_file`、`list_dir`、`bash`、task 系列、`note_save`、subagent 工具 |
+| Parallel tools | 同一轮的多个工具调用默认并发调度；结果按调用顺序回传，依赖操作需分轮发起 |
 | Permissions | 工具调用支持一次性/持久化审批，策略存储在 `~/.mini/policy.toml` |
 | Memory/context | 读取 `~/.mini/context.md` 与 `.mini/context.md`，session notes 可跨轮注入上下文 |
 | Compaction | 支持 session 上下文压缩，TUI 中可使用 `/compact` |
@@ -162,6 +163,27 @@ TUI 会连接正在运行的 `mini-core`，创建 chat session，并实时显示
 uv run mini-tui --replay <run-id>
 ```
 
+### 打开桌面应用
+
+macOS 上可以使用独立的 MiniClaude 应用窗口，界面参考 Codex 桌面版，通过事件流
+实时显示对话、工具执行和权限审批。应用自动连接或启动当前项目的 core。
+支持系统文件夹选择、项目切换与从列表移除、文件和图片附件、重启续聊、停止任务、模型和权限设置，
+以及 Git 改动、PR 列表、定时任务和 MCP 服务管理。
+
+```bash
+uv sync --extra desktop
+uv run --extra desktop mini-desktop
+```
+
+生成可双击的本机应用入口：
+
+```bash
+.venv/bin/python scripts/build_macos_app.py
+```
+
+随后打开 `dist/MiniClaude.app`。此启动器依赖当前项目及 `.venv`。
+界面能力、运行方式与架构见 [桌面应用说明](docs/DESKTOP.md)。
+
 ### 运行一次性任务
 
 ```bash
@@ -170,6 +192,31 @@ uv run mini run --goal "总结 README.md 的主要章节"
 
 `mini run` 会订阅事件流、触发 agent run，并在终端中打印 step、tool、LLM token 和
 最终状态。
+
+### 测试工具并行执行
+
+更新代码后重启 `mini-core`，在聊天界面发送以下提示词：
+
+```text
+请测试工具并行执行。下一条回复在同一轮中发出 3 个独立的 bash 工具调用，
+每个调用分别执行下面的一条命令。这三项互不依赖，请同时发起。
+不要合并命令，不要使用 &、后台子代理，也不要先运行探测命令。
+
+python3 -c 'import time; s=time.time(); time.sleep(3); print("A", s, time.time())'
+python3 -c 'import time; s=time.time(); time.sleep(3); print("B", s, time.time())'
+python3 -c 'import time; s=time.time(); time.sleep(3); print("C", s, time.time())'
+
+收到全部结果后，列出 A/B/C 的开始与结束时间，计算最晚开始时间是否早于
+最早结束时间，并计算从最早开始到最晚结束的总耗时。根据实际输出判断是否并行。
+```
+
+如果出现审批，请及时批准三个调用。并行时三个执行区间应重叠，命令总耗时约 3 秒，
+串行则约 9 秒；模型生成回复和人工审批的等待时间会影响聊天总耗时。
+每个调用仍独立进行权限检查、超时处理和重试；停止任务会取消尚未完成的调用，
+并保留已经完成的结果。
+
+并发调度能让 Bash 子进程和不同 MCP 连接的等待重叠。同步文件工具的 I/O 仍在事件循环
+中执行；同一 MCP 连接保留请求锁，调用按顺序执行以确保响应正确配对。
 
 ## 常用命令
 

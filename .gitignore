@@ -16,3 +16,6 @@ uv.lock
 .DS_Store
 *.log
 workspace/
+**/.mini/desktop_schedules.json
+**/.mini/desktop_schedules.lock
+**/.mini/desktop_mcp.json
