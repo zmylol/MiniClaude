@@ -62,15 +62,16 @@ MiniClaude 的核心设计目标是把一个 agent 拆成清晰的本地系统�
 
 ## Roadmap Preview
 
-MiniClaude 正在向一套证据可追溯、graph-native 的 agent harness 演进：
+MiniClaude 的 S8 桌面工作台与工具并行执行已完成，后续路线围绕可靠任务执行逐步推进：
 
-- **S8 — Evidence-backed Memory**：找回历史决策及其原始证据。
-- **S9 — Graph Runtime**：将复杂工作组织成可校验、可执行的任务图。
-- **S10 — Critical Decisions**：在高影响节点上执行受控的多采样、Critic 和上下文恢复。
-- **S11 — Bounded Exploration**：在硬性预算内运行 Explore Node 与嵌套 Local GraphLoop。
+- **S8 — Desktop & Parallel Tools（已完成）**：桌面项目与会话管理、审批和停止、同轮工具并行。
+- **S9 — Graph Runtime（下一主线）**：先交付静态串行任务图与桌面执行闭环，再开放受控并发。
+- **证据记忆支撑线 — Memory v1**：显式保存决策、原始证据和预算化检索，支持后续历史恢复。
+- **S10 — Critical Decisions**：先做单候选验证；双候选、Critic 和 Recovery 通过成本/质量评测后再启用。
+- **S11 — Bounded Exploration**：先验证固定预算下的只读候选探索，动态 Local GraphLoop 后置。
 
-> S8–S11 是内部能力里程碑，不对应包版本号；这些规划不代表功能已经实现、
-> 固定 GitHub Release 或承诺发布日期。
+> S8–S11 是内部能力里程碑，不对应包版本号、固定 GitHub Release 或承诺发布日期。
+> 除明确标记已完成的 S8 外，其余为计划或实验能力；旧稿的 S8 Memory 已归入独立支撑线。
 
 完整范围、非目标、公开演示和评测门槛见 [ROADMAP.md](./ROADMAP.md)。
 
