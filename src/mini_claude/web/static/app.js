@@ -26,6 +26,9 @@ let preferences = {};
 let modalVersion = 0;
 let connectionVersion = 0;
 let connectionEvents = [];
+let composerSize;
+let eventMessageScroll;
+let eventMessagesHidden = false;
 if (new URLSearchParams(location.search).has('desktop')) document.body.classList.add('desktop-app');
 
 // 从自有本地缓存恢复对话，缓存异常不会阻止启动。
@@ -147,7 +150,7 @@ function messageHtml(message, index) {
 function renderMessages(conversation) {
   const container = $('#messages');
   const switched = visibleConversation !== conversation.id;
-  const follow = switched || container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+  const follow = switched || nearLatestMessage();
   if (switched) { container.replaceChildren(); messageNodes.clear(); visibleConversation = conversation.id; }
   conversation.messages.forEach((message, index) => {
     const html = messageHtml(message, index);
@@ -175,7 +178,32 @@ function renderMessages(conversation) {
     + (conversation.failedDraft ? '<div class="sync-notice"><button data-action="recover-draft">恢复上次输入和附件</button></div>' : '')
     + (labels[conversation.status] && conversation.status !== 'interrupted' ? `<div class="run-status" role="status">${labels[conversation.status]}</div>` : '');
   if (status.innerHTML !== statusHtml) status.innerHTML = statusHtml;
-  if (follow) container.scrollTop = container.scrollHeight;
+  if (follow && container.clientHeight) container.scrollTop = container.scrollHeight;
+  syncScrollButton();
+}
+
+// 离开最新回复后保留阅读位置，通过明确入口重新跟随消息。
+function nearLatestMessage() {
+  const messages = $('#messages');
+  return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 100;
+}
+function syncScrollButton() {
+  const messages = $('#messages');
+  const eventsOpen = !$('#event-panel').hidden;
+  if (eventsOpen && messages.clientHeight) {
+    if (eventMessagesHidden) {
+      messages.scrollTop = !eventMessageScroll || eventMessageScroll.conversationId !== active()?.id || eventMessageScroll.follow
+        ? messages.scrollHeight : eventMessageScroll.top;
+    }
+    eventMessageScroll = { conversationId: active()?.id, top: messages.scrollTop, follow: nearLatestMessage() };
+  }
+  eventMessagesHidden = eventsOpen && !messages.clientHeight;
+  $('#scroll-to-bottom').hidden = Boolean(currentPage) || messages.hidden || nearLatestMessage();
+}
+function scrollToLatest() {
+  if (!$('#event-panel').hidden) eventMessageScroll = { conversationId: active()?.id, top: 0, follow: true };
+  $('#messages').scrollTop = $('#messages').scrollHeight;
+  syncScrollButton();
 }
 
 // 事件面板只展示当前会话最近 200 条原始事件。
@@ -201,15 +229,25 @@ function render() {
   const conversation = active();
   if (!conversation) return;
   renderSidebar();
-  if (!currentPage) $('#conversation-title').textContent = conversation.messages.length || conversation.sessionId ? conversation.title : '';
+  if (!currentPage) $('#conversation-title').textContent = conversation.messages.length || conversation.sessionId ? conversation.title : '新对话';
   $('#welcome').hidden = conversation.messages.length > 0;
   $('#empty-workspace').hidden = hasProject();
+  $('#messages').hidden = !conversation.messages.length;
+  renderComposer();
+  renderMessages(conversation);
+  $('#conversation-menu').hidden = !hasProject() || Boolean(currentPage);
+  $('#event-toggle').hidden = Boolean(currentPage);
+  renderEvents();
+}
+
+// 输入只更新输入区，长会话的消息转换和侧栏搜索不随每次按键执行。
+function renderComposer() {
+  const conversation = active();
+  if (!conversation) return;
   $('#prompt').disabled = !hasProject() || switchingProject;
   $('#prompt').placeholder = hasProject() ? '随心输入，开始构建' : '先打开一个项目文件夹';
   $('#attach-button').disabled = !hasProject();
   $('#file-picker').disabled = !hasProject();
-  $('#messages').hidden = !conversation.messages.length;
-  renderMessages(conversation);
   $('#model-name').textContent = conversation.selectedModel || conversation.model || info.model || '默认模型';
   const busy = ['running', 'waiting', 'sending'].includes(conversation.status);
   $('#send-button').disabled = !hasProject() || !state.connected || conversation.stopping || attachmentLoading || (busy ? !conversation.sessionId : !$('#prompt').value.trim() && !conversation.attachments?.length);
@@ -220,9 +258,23 @@ function render() {
   $('#permission-mode').dataset.mode = conversation.permissionMode || 'ask';
   $('#model-button').disabled = !hasProject() || busy;
   $('#permission-mode').disabled = !hasProject() || busy;
-  $('#conversation-menu').hidden = !hasProject() || Boolean(currentPage);
+  $('#welcome-starters').hidden = !hasProject() || Boolean($('#prompt').value) || Boolean(conversation.attachments?.length);
   renderAttachments();
-  renderEvents();
+  resizeComposer();
+}
+
+// CSS 限制最高占用；草稿恢复、窗口缩放及侧栏变化使用相同的内容高度。
+function resizeComposer() {
+  const prompt = $('#prompt');
+  if ($('.composer-dock').hidden || !prompt.clientWidth) return;
+  const size = { value: prompt.value, width: prompt.clientWidth, viewportHeight: window.innerHeight };
+  if (composerSize && Object.keys(size).every(key => composerSize[key] === size[key])) return;
+  const follow = $('#messages').clientHeight > 0 && nearLatestMessage();
+  prompt.style.height = 'auto';
+  prompt.style.height = `${prompt.scrollHeight}px`;
+  composerSize = size;
+  if (follow) scrollToLatest();
+  else syncScrollButton();
 }
 
 // 同一动画帧内合并流式事件渲染。
@@ -324,7 +376,7 @@ async function sendMessage(event) {
     if (active()?.id === conversation.id) $('#prompt').value = '';
     submitted = true;
     persist(); render();
-    $('#messages').scrollTop = $('#messages').scrollHeight;
+    if (active()?.id === conversation.id) scrollToLatest();
     await command('session.send_message', { session_id: conversation.sessionId, content: composeContent(text || '请查看附件。', files), attachments: files.filter(file => file.kind === 'image').map(file => ({ name: file.name, media_type: file.mediaType, data: file.data })) });
     if (['sending', 'running'].includes(conversation.status)) { conversation.status = 'idle'; conversation.mainStatus = 'idle'; }
   } catch (error) {
@@ -370,6 +422,38 @@ function syncSidebar() {
   $('#sidebar').inert = !open;
   $('#sidebar-toggle').setAttribute('aria-expanded', String(open));
   $('#sidebar-open').setAttribute('aria-expanded', String(open));
+  resizeComposer();
+}
+function setSidebarOpen(open, focus = true) {
+  if (matchMedia('(max-width: 760px)').matches) document.body.classList.toggle('sidebar-open', open);
+  else {
+    document.body.classList.toggle('sidebar-collapsed', !open);
+    document.body.classList.remove('sidebar-open');
+  }
+  syncSidebar();
+  if (focus) $(open ? '#sidebar-toggle' : '#sidebar-open').focus();
+}
+
+// 面板可见性、布局和辅助技术状态由同一个入口同步。
+function setEventPanelOpen(open, focus = true) {
+  const wasOpen = !$('#event-panel').hidden;
+  const follow = nearLatestMessage();
+  if (open || $('#messages').clientHeight) {
+    eventMessageScroll = { conversationId: active()?.id, top: $('#messages').scrollTop, follow };
+  }
+  const previousScroll = eventMessageScroll;
+  $('#event-panel').hidden = !open;
+  $('.workspace').classList.toggle('events-open', open);
+  $('#event-toggle').setAttribute('aria-expanded', String(open));
+  if (open) renderEvents();
+  resizeComposer();
+  if (!open && wasOpen) {
+    if (!previousScroll || previousScroll.conversationId !== active()?.id || previousScroll.follow) scrollToLatest();
+    else $('#messages').scrollTop = previousScroll.top;
+    eventMessageScroll = null;
+  } else if (follow && $('#messages').clientHeight) scrollToLatest();
+  syncScrollButton();
+  if (focus) $(open ? '#event-close' : '#event-toggle').focus();
 }
 
 // 页面和会话共用前进后退历史。
@@ -400,7 +484,10 @@ function showChat() {
   $('#workspace-page').hidden = true;
   $('.conversation-stage').hidden = false;
   $('.composer-dock').hidden = false;
-  for (const nav of document.querySelectorAll('.primary-nav [data-action]')) nav.classList.remove('selected');
+  for (const nav of document.querySelectorAll('.primary-nav [data-action]')) {
+    nav.classList.remove('selected');
+    nav.removeAttribute('aria-current');
+  }
 }
 function showPage(page, record = true) {
   projectPicker.close(false);
@@ -408,10 +495,14 @@ function showPage(page, record = true) {
   $('#workspace-page').hidden = false;
   $('.conversation-stage').hidden = true;
   $('.composer-dock').hidden = true;
-  $('#event-panel').hidden = true;
-  $('#event-toggle').setAttribute('aria-expanded', 'false');
+  setEventPanelOpen(false, false);
   $('#conversation-title').textContent = '';
-  for (const nav of document.querySelectorAll('.primary-nav [data-action]')) nav.classList.toggle('selected', nav.dataset.action === page);
+  for (const nav of document.querySelectorAll('.primary-nav [data-action]')) {
+    const selected = nav.dataset.action === page;
+    nav.classList.toggle('selected', selected);
+    if (selected) nav.setAttribute('aria-current', 'page');
+    else nav.removeAttribute('aria-current');
+  }
   if (record) recordNavigation({ page });
   document.body.classList.remove('sidebar-open'); syncSidebar(); render();
   views.show(page);
@@ -612,7 +703,7 @@ function handleAction(action, target) {
 
 // 主输入框原生支持文件选择、图片粘贴、拖放和输入法组合输入。
 $('#composer-form').addEventListener('submit', sendMessage);
-$('#prompt').addEventListener('input', () => { active().draft = $('#prompt').value; render(); persist(); });
+$('#prompt').addEventListener('input', () => { active().draft = $('#prompt').value; renderComposer(); persist(); });
 $('#prompt').addEventListener('keydown', event => {
   // WebKit 会先结束组字再派发确认键，此时只能通过 229 识别输入法回车。
   if (event.isComposing || event.keyCode === 229) return;
@@ -643,26 +734,30 @@ $('#search-button').addEventListener('click', () => {
   else { $('#search-input').value = ''; renderSidebar(); }
 });
 $('#search-input').addEventListener('input', renderSidebar);
-$('#sidebar-toggle').addEventListener('click', () => {
-  if (matchMedia('(max-width: 760px)').matches) document.body.classList.remove('sidebar-open');
-  else document.body.classList.add('sidebar-collapsed');
-  syncSidebar(); $('#sidebar-open').focus();
-});
-$('#sidebar-open').addEventListener('click', () => { document.body.classList.remove('sidebar-collapsed'); document.body.classList.add('sidebar-open'); syncSidebar(); $('#sidebar-toggle').focus(); });
-$('#sidebar-backdrop').addEventListener('click', () => { document.body.classList.remove('sidebar-open'); syncSidebar(); });
-window.addEventListener('resize', syncSidebar);
+$('#sidebar-toggle').addEventListener('click', () => setSidebarOpen(false));
+$('#sidebar-open').addEventListener('click', () => setSidebarOpen(true));
+$('#sidebar-backdrop').addEventListener('click', () => setSidebarOpen(false));
+window.addEventListener('resize', () => { syncSidebar(); syncScrollButton(); });
+$('#messages').addEventListener('scroll', syncScrollButton, { passive: true });
+$('#scroll-to-bottom').addEventListener('click', () => { scrollToLatest(); $('#messages').focus({ preventScroll: true }); });
 $('#project-button').addEventListener('click', () => projectPicker.open());
 $('#permission-mode').addEventListener('click', showPermissions);
 $('#model-button').addEventListener('click', showModel);
 $('#conversation-menu').addEventListener('click', () => conversationMenu());
 $('#history-back').addEventListener('click', () => traverseHistory(-1));
 $('#history-forward').addEventListener('click', () => traverseHistory(1));
-$('#event-toggle').addEventListener('click', () => { $('#event-panel').hidden = !$('#event-panel').hidden; $('#event-toggle').setAttribute('aria-expanded', String(!$('#event-panel').hidden)); renderEvents(); });
-$('#event-close').addEventListener('click', () => { $('#event-panel').hidden = true; $('#event-toggle').setAttribute('aria-expanded', 'false'); $('#event-toggle').focus(); });
+$('#event-toggle').addEventListener('click', () => setEventPanelOpen($('#event-panel').hidden));
+$('#event-close').addEventListener('click', () => setEventPanelOpen(false));
 document.addEventListener('click', event => {
   const button = event.target.closest('button');
   if (!button) return;
-  if (button.dataset.conversation) selectConversation(button.dataset.conversation);
+  if (button.dataset.starter != null) {
+    if (!hasProject() || currentPage || active().messages.length || $('#prompt').value || active().attachments?.length) return;
+    $('#prompt').value = button.dataset.starter;
+    active().draft = $('#prompt').value;
+    renderComposer(); persist(); $('#prompt').focus();
+  }
+  else if (button.dataset.conversation) selectConversation(button.dataset.conversation);
   else if (button.dataset.menu) conversationMenu(button.dataset.menu);
   else if (button.dataset.removeFile) { active().attachments = active().attachments.filter(file => file.id !== button.dataset.removeFile); render(); }
   else if (button.dataset.copyMessage != null) copyText(active().messages[Number(button.dataset.copyMessage)].text);
@@ -670,13 +765,27 @@ document.addEventListener('click', event => {
   else if (button.dataset.action) handleAction(button.dataset.action, button);
 });
 document.addEventListener('keydown', event => {
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || $('#modal').open) return;
+  if (!$('#project-popover').hidden) {
+    if (event.key === 'Escape') { event.preventDefault(); projectPicker.close(); }
+    return;
+  }
+  if (event.key === 'Escape') {
+    if (!$('#event-panel').hidden) { event.preventDefault(); setEventPanelOpen(false); }
+    else if (!$('#search-input').hidden) {
+      event.preventDefault(); $('#search-input').hidden = true; $('#search-input').value = '';
+      $('#search-button').setAttribute('aria-expanded', 'false'); renderSidebar(); $('#search-button').focus();
+    }
+    else if (document.body.classList.contains('sidebar-open')) { event.preventDefault(); setSidebarOpen(false); }
+    return;
+  }
   const modifier = event.metaKey || event.ctrlKey;
   if (modifier && event.shiftKey && event.key.toLowerCase() === 'o') { event.preventDefault(); $('#modal').close(); newConversation(); }
-  else if (modifier && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#search-input').hidden = false; $('#search-button').setAttribute('aria-expanded', 'true'); document.body.classList.remove('sidebar-collapsed'); document.body.classList.add('sidebar-open'); syncSidebar(); $('#search-input').focus(); }
+  else if (modifier && event.key.toLowerCase() === 'b') { event.preventDefault(); setSidebarOpen($('#sidebar').inert); }
+  else if (modifier && event.key.toLowerCase() === 'k') { event.preventDefault(); $('#search-input').hidden = false; $('#search-button').setAttribute('aria-expanded', 'true'); setSidebarOpen(true, false); $('#search-input').focus(); }
   else if (modifier && event.shiftKey && event.key.toLowerCase() === 'a') { event.preventDefault(); $('#file-picker').click(); }
   else if (modifier && event.key.toLowerCase() === 'o') { event.preventDefault(); views.perform('pick-project', $('#project-button')).catch(error => toast(error.message)); }
   else if (modifier && event.key === ',') { event.preventDefault(); showPage('profile'); }
-  if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) { document.body.classList.remove('sidebar-open'); syncSidebar(); $('#sidebar-open').focus(); }
 });
 window.addEventListener('pagehide', () => { saveNow(); connection.close(); });
 $('#modal').addEventListener('cancel', () => { modalVersion++; });

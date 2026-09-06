@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#edf3fa" />
+    <meta name="theme-color" content="#f5f5f3" />
     <title>MiniClaude</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23252728'/%3E%3Cpath d='m19 22 8 10-8 10m17 0h11' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
     <link rel="stylesheet" href="/assets/styles.css" />
@@ -49,8 +49,8 @@
       </div>
 
       <div class="sidebar-brand">
-        <button class="wordmark" data-action="profile" title="设置">MiniClaude<span class="brand-chevron"><svg class="icon"><use href="#i-chevron-down"/></svg></span></button>
-        <button id="search-button" class="icon-button" aria-label="搜索对话" aria-controls="search-input" aria-expanded="false" title="搜索对话"><svg class="icon"><use href="#i-search"/></svg></button>
+        <button class="wordmark" data-action="profile" title="设置"><span class="brand-icon" aria-hidden="true"><svg class="icon"><use href="#i-terminal"/></svg></span>MiniClaude<span class="brand-chevron"><svg class="icon"><use href="#i-chevron-down"/></svg></span></button>
+        <button id="search-button" class="icon-button" aria-label="搜索对话" aria-controls="search-input" aria-expanded="false" title="搜索对话 · ⌘/Ctrl K"><svg class="icon"><use href="#i-search"/></svg></button>
       </div>
       <div class="sidebar-search"><input id="search-input" type="search" placeholder="搜索对话…" aria-label="搜索对话" autocomplete="off" hidden /></div>
 
@@ -93,11 +93,18 @@
 
       <div class="conversation-stage">
         <section id="welcome" class="welcome" aria-label="开始对话">
-          <svg class="welcome-mark" viewBox="0 0 72 72" fill="none" aria-hidden="true"><path d="M25 10c6-7 16-6 21 1 9-1 17 7 15 16 7 7 5 18-3 23-2 10-13 14-21 9-9 4-19-1-20-10-9-5-12-16-6-23-1-8 5-15 14-16Z"/><path d="m25 27 6 9-6 9m15 0h10"/></svg>
-          <h2>我们要构建什么？</h2>
+          <svg class="welcome-mark" viewBox="0 0 72 72" fill="none" aria-hidden="true"><rect x="5" y="5" width="62" height="62" rx="19"/><path d="m23 26 9 10-9 10m18 0h10"/></svg>
+          <h2>今天，我们构建什么？</h2>
+          <p class="welcome-description">从一个问题、一段代码，或一个新想法开始。</p>
+          <div id="welcome-starters" class="welcome-starters" aria-label="开始对话的建议">
+            <button type="button" class="starter-button" data-starter="请先阅读当前项目，梳理目录结构、核心功能和启动方式，帮我快速理解这个项目。"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span><strong>了解项目</strong><small>从结构和核心逻辑开始</small></span><svg class="icon small" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+            <button type="button" class="starter-button" data-starter="我想在当前项目中实现一个功能。请先了解已有代码，再和我确认具体需求与实现方案。"><svg class="icon" aria-hidden="true"><use href="#i-code"/></svg><span><strong>实现功能</strong><small>让下一步想法落地</small></span><svg class="icon small" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+            <button type="button" class="starter-button" data-starter="请审查当前项目的未提交改动，重点检查逻辑错误、边界情况和测试覆盖，并给出具体建议。"><svg class="icon" aria-hidden="true"><use href="#i-git-branch"/></svg><span><strong>审查改动</strong><small>一起检查细节与问题</small></span><svg class="icon small" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+          </div>
           <div id="empty-workspace" class="empty-workspace" hidden><p>打开一个项目文件夹，开始新的对话。</p><button class="secondary" data-action="open-project"><svg class="icon"><use href="#i-folder"/></svg>打开项目</button></div>
         </section>
         <div id="messages" class="messages" role="log" aria-label="对话消息" aria-live="polite" aria-relevant="additions" tabindex="0" hidden></div>
+        <button id="scroll-to-bottom" class="scroll-to-bottom" type="button" aria-label="回到最新消息" aria-controls="messages" hidden><svg class="icon" aria-hidden="true"><use href="#i-arrow-up"/></svg><span>回到最新</span></button>
       </div>
 
       <div class="composer-dock">
@@ -117,7 +124,7 @@
 
       <aside id="event-panel" class="event-panel" aria-labelledby="event-heading" hidden>
         <div class="event-panel-header"><div><h2 id="event-heading">实时事件</h2><p>来自当前会话的事件流</p></div><button id="event-close" class="icon-button" aria-label="关闭实时事件"><svg class="icon"><use href="#i-x"/></svg></button></div>
-        <ol id="event-list" class="event-list" aria-live="polite"><li class="empty-state">发送消息后，事件将显示在这里。</li></ol>
+        <ol id="event-list" class="event-list" aria-live="polite" aria-relevant="additions" aria-labelledby="event-heading" tabindex="0"><li class="empty-state">发送消息后，事件将显示在这里。</li></ol>
       </aside>
     </main>
 

@@ -9,6 +9,7 @@ import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -208,9 +209,23 @@ def test_gateway_timeout_is_reported_as_timeout(
 
 
 # 功能：独立窗口通过本机事件网关加载界面。
-# 设计：原生窗口和持久存储参数正确，退出时资源按所有权清理。
-def test_desktop_window_lifecycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    webview = MagicMock()
+# 设计：在不同主屏幕下验证初始尺寸、最小尺寸和显示器选择，退出时资源按所有权清理。
+@pytest.mark.parametrize(("screen_size", "window_size", "minimum_size"), [
+    ((2560, 1440), (1440, 960), (900, 650)),
+    ((1440, 900), (1376, 804), (900, 650)),
+    ((1366, 768), (1302, 672), (900, 650)),
+    ((800, 600), (736, 504), (736, 504)),
+    (None, (1440, 960), (900, 650)),
+])
+def test_desktop_window_lifecycle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, screen_size: tuple[int, int] | None,
+    window_size: tuple[int, int], minimum_size: tuple[int, int],
+) -> None:
+    webview = MagicMock(screens=[])
+    primary = (SimpleNamespace(x=0, y=0, width=screen_size[0], height=screen_size[1])
+               if screen_size is not None else None)
+    secondary = SimpleNamespace(x=-2560, y=0, width=2560, height=1440)
+    webview.screens = [secondary, primary] if primary else []
     core = MagicMock()
     gateway = MagicMock()
     gateway.start.return_value = "http://127.0.0.1:7439"
@@ -224,9 +239,9 @@ def test_desktop_window_lifecycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     assert webview.create_window.call_args.args == ("MiniClaude",)
     options = webview.create_window.call_args.kwargs
     assert options["url"] == "http://127.0.0.1:7439/?desktop=1"
-    assert options["width"] == 1440
-    assert options["height"] == 960
-    assert options["min_size"] == (900, 650)
+    assert (options["width"], options["height"]) == window_size
+    assert options["min_size"] == minimum_size
+    assert options["screen"] is primary
     assert options.get("frameless", False) is False
     assert "js_api" not in options
     assert webview.settings.__setitem__.call_args_list[-1].args == ("ALLOW_DOWNLOADS", True)
@@ -242,7 +257,7 @@ def test_desktop_window_lifecycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 def test_desktop_startup_failure_cleans_up(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure: str,
 ) -> None:
-    webview = MagicMock()
+    webview = MagicMock(screens=[])
     core = MagicMock()
     gateway = MagicMock()
     gateway.start.return_value = "http://127.0.0.1:7439"
@@ -265,7 +280,7 @@ def test_desktop_startup_failure_cleans_up(
 def test_native_quit_cleans_up_before_webview_returns(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    webview = MagicMock()
+    webview = MagicMock(screens=[])
     core = MagicMock()
     gateway = MagicMock()
     gateway.start.return_value = "http://127.0.0.1:7439"
@@ -445,7 +460,7 @@ def test_project_cores_keep_running_projects_and_isolate_environment(
 def test_desktop_installs_native_folder_picker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
 ) -> None:
-    webview = MagicMock()
+    webview = MagicMock(screens=[])
     gateway = MagicMock()
     gateway.start.return_value = "http://127.0.0.1:7439"
     factory = MagicMock(return_value=gateway)

@@ -411,9 +411,16 @@ def run_desktop(
         url = gateway.start()
         webview.settings["ALLOW_FILE_URLS"] = False
         webview.settings["ALLOW_DOWNLOADS"] = True
+        screens = webview.screens
+        screen = next((item for item in screens if item.x == 0 and item.y == 0),
+                      screens[0] if screens else None)
+        # 使用逻辑像素为窗口边框和系统栏留白，较小屏幕同步降低最小尺寸。
+        width = min(1440, screen.width - 64) if screen is not None else 1440
+        height = min(960, screen.height - 96) if screen is not None else 960
         window = webview.create_window(
-            "MiniClaude", url=f"{url}/?desktop=1", width=1440, height=960,
-            min_size=(900, 650), text_select=True, background_color="#FFFFFF",
+            "MiniClaude", url=f"{url}/?desktop=1", width=width, height=height, screen=screen,
+            min_size=(min(900, width), min(650, height)), text_select=True,
+            background_color="#FFFFFF",
         )
 
         # 系统文件夹选择器直接返回用户选择，取消操作不改变项目或启动后端。
