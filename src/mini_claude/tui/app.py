@@ -461,6 +461,22 @@ class ChatTextArea(TextArea):
         await super()._on_key(event)
 
 
+_BANNER_ART = (
+    "███╗   ███╗██╗███╗   ██╗██╗ ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗",
+    "████╗ ████║██║████╗  ██║██║██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝",
+    "██╔████╔██║██║██╔██╗ ██║██║██║     ██║     ███████║██║   ██║██║  ██║█████╗  ",
+    "██║╚██╔╝██║██║██║╚██╗██║██║██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝  ",
+    "██║ ╚═╝ ██║██║██║ ╚████║██║╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗",
+    "╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝",
+)
+_BANNER_HELP = "  输入消息开始对话  ·  键入 / 触发 skill  ·  Ctrl+C 退出"
+
+
+def _render_banner(lines: tuple[str, ...], help_text: str) -> str:
+    art = "\n".join(f"[bold cyan]{line}[/bold cyan]" for line in lines)
+    return f"{art}\n[dim]{help_text}[/dim]"
+
+
 class MiniTuiApp(App[None]):
     """MiniClaude TUI：终端滚屏风格，实时展示 agent 执行过程。"""
 
@@ -491,10 +507,7 @@ class MiniTuiApp(App[None]):
     Static.log-line { padding: 0 2; }
     """
 
-    _BANNER = (
-        "[bold cyan]MiniClaude[/bold cyan]\n"
-        "[dim]  输入消息开始对话  ·  键入 / 触发 skill  ·  Ctrl+C 退出[/dim]"
-    )
+    _BANNER = _render_banner(_BANNER_ART, _BANNER_HELP)
 
     # 初始化连接参数和 TUI 内部状态
     def __init__(self, host: str, port: int, replay_run_id: str | None = None) -> None:

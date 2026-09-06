@@ -4,12 +4,32 @@ from rich.markdown import Markdown
 from textual.widget import Widget
 
 from mini_claude.tui.app import (
-    MiniTuiApp,
+    _BANNER_ART,
     LLMStreamBlock,
+    MiniTuiApp,
     ToolCallBlock,
     _param_summary,
     _preview,
+    _render_banner,
 )
+
+
+# 功能：验证启动 banner 使用 miniclaude 的块状 cyan 字符画
+# 设计：静态内容测试，避免 TUI 启动时 banner 退回普通标题文本
+def test_banner_uses_miniclaude_ascii_art() -> None:
+    banner = MiniTuiApp._BANNER
+
+    assert "[bold cyan]███╗   ███╗██╗███╗   ██╗" in banner
+    assert "╚██████╗███████╗" in banner
+    assert "[dim]  输入消息开始对话" in banner
+
+
+# 功能：验证 banner 源字符画保持纯文本，避免源码里混入成段 Rich 标记
+# 设计：颜色标记由 _render_banner 统一添加，源码中的字符画仍可直接阅读
+def test_banner_art_is_plain_before_rendering() -> None:
+    assert len(_BANNER_ART) == 6
+    assert all("[bold cyan]" not in line for line in _BANNER_ART)
+    assert _render_banner(("ABC",), "help") == "[bold cyan]ABC[/bold cyan]\n[dim]help[/dim]"
 
 
 # 功能：验证 _preview 超出长度时截断并追加省略号
