@@ -5,7 +5,7 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --sidebar-width: 252px;
+  --sidebar-width: 280px;
   --conversation-width: 840px;
   --workspace-gutter: clamp(24px, 4vw, 56px);
   --text-secondary: #606762;
@@ -215,6 +215,26 @@ kbd { font-family: inherit; font-size: 11px; padding: 4px 7px; border: 1px solid
 .sidebar-project-row .project-nav-item { flex: 1; min-width: 0; }
 .project-more { width: 26px; height: 28px; margin-right: 5px; }
 .project-more .icon { width: 17px; height: 17px; }
+.workspace-group { margin-top: 7px; }
+.default-workspace { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.workspace-group .sidebar-project-row { min-height: 38px; }
+.workspace-group .project-nav-item { gap: 7px; padding: 8px 3px; font-size: 13px; font-weight: 550; }
+.workspace-group .project-nav-item:hover { background: transparent; }
+.workspace-toggle { width: 25px; height: 30px; }
+.workspace-toggle .icon { width: 13px; height: 13px; transition: transform .15s; }
+.workspace-toggle[aria-expanded="false"] .icon { transform: rotate(-90deg); }
+.workspace-new { width: 25px; height: 28px; }
+.workspace-new .icon { width: 16px; height: 16px; }
+.workspace-group .project-more { width: 25px; margin-right: 2px; }
+.workspace-conversations { margin: 4px 0 3px 12px; padding-left: 11px; border-left: 1px solid #dce0d8; }
+.workspace-conversations .conversation-item { min-height: 34px; padding: 6px 7px; gap: 3px; font-size: 12px; }
+.workspace-conversations .conversation-select { gap: 7px; }
+.workspace-conversations .conversation-select > .icon { width: 14px; height: 14px; color: #788376; }
+.workspace-conversations .sidebar-empty { margin: 6px 7px 2px; font-size: 11px; }
+.workspace-start, .workspace-retry { margin: 3px 2px; padding: 6px; border-radius: 6px; font-size: 11px; color: #526c4b; text-align: left; }
+.workspace-start:hover, .workspace-retry:hover { background: var(--hover); }
+.workspace-group .sidebar-project-row.selected { background: #edf0e8; }
+.workspace-conversations .conversation-item.active { background: #dfe6d8; color: #293b26; }
 .empty-workspace p { margin: 12px 0 16px; color: #879097; font-size: 13px; }
 .recent-section { margin-top: 19px; }
 .conversation-list { display: flex; flex-direction: column; gap: 3px; }

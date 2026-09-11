@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from mini_claude.core.config import MiniConfig
+from mini_claude.core.session.model import Session
+from mini_claude.core.session.store import SessionStore
 from mini_claude.web.workspace import Workspace
 
 
@@ -70,6 +72,7 @@ async def test_workspace_sessions_are_scoped_without_changing_selection(tmp_path
     default = tmp_path / "storage/workspace"
     workspace = Workspace(MiniConfig(), tmp_path, default_path=default,
                           open_project=lambda _: MiniConfig(port=8123))
+    workspace._configs[default] = MiniConfig(port=8123)
     workspace._request_core = AsyncMock(return_value={"sessions": [{
         "session_id": "sess-default", "title": "默认聊天", "project_path": str(default),
     }]})
@@ -80,6 +83,25 @@ async def test_workspace_sessions_are_scoped_without_changing_selection(tmp_path
     assert workspace._request_core.call_args.args[1:] == ("session.list", {})
     with pytest.raises(ValueError, match="打开"):
         await workspace.handle("workspace.sessions", {"path": str(tmp_path / "unknown")})
+
+
+# 功能：查看未启动项目的聊天目录只读取已保存摘要，不启动后端或混入其他项目。
+# 设计：临时存储包含两个项目的元数据，启动器设为失败以发现隐式启动。
+async def test_inactive_workspace_history_does_not_start_a_core(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("mini_claude.web.workspace.SESSIONS_ROOT", tmp_path / "sessions", raising=False)
+    default = tmp_path / "desktop/workspace"
+    opener = MagicMock(side_effect=RuntimeError("must not start"))
+    workspace = Workspace(MiniConfig(), tmp_path, default_path=default, open_project=opener)
+    store = SessionStore(tmp_path / "sessions")
+    for sid, path in [("sess-default", default), ("sess-project", tmp_path)]:
+        store.write_meta(Session(id=sid, title="同名聊天", mode="chat", status="waiting_for_input",
+                                 project_path=str(path), created_at="2026-09-11", updated_at="2026-09-11"))
+    result = await workspace.handle("workspace.sessions", {"path": str(default)})
+    assert [item["session_id"] for item in result["sessions"]] == ["sess-default"]
+    opener.assert_not_called()
+    assert workspace.project_path == tmp_path
 
 
 # 功能：原生选择取消无副作用，选定项目持久化并可在重启后从最近列表切换。

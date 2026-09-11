@@ -217,9 +217,10 @@ def test_gateway_timeout_is_reported_as_timeout(
     ((800, 600), (736, 504), (736, 504)),
     (None, (1440, 960), (900, 650)),
 ])
+@pytest.mark.parametrize("project_selected", [True, False])
 def test_desktop_window_lifecycle(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, screen_size: tuple[int, int] | None,
-    window_size: tuple[int, int], minimum_size: tuple[int, int],
+    window_size: tuple[int, int], minimum_size: tuple[int, int], project_selected: bool,
 ) -> None:
     webview = MagicMock(screens=[])
     primary = (SimpleNamespace(x=0, y=0, width=screen_size[0], height=screen_size[1])
@@ -234,7 +235,15 @@ def test_desktop_window_lifecycle(
     monkeypatch.setattr(app, "CoreProcess", MagicMock(return_value=core))
     monkeypatch.setattr(app, "DesktopGateway", MagicMock(return_value=gateway))
 
-    app.run_desktop(MiniConfig(), tmp_path, storage_path=tmp_path / "storage")
+    app.run_desktop(MiniConfig(), tmp_path, storage_path=tmp_path / "storage",
+                    project_selected=project_selected)
+
+    workspace = app.DesktopGateway.call_args.kwargs["workspace"]
+    expected_path = tmp_path if project_selected else tmp_path / "storage/workspace"
+    assert workspace.project_path == expected_path
+    assert workspace.project_selected is True
+    assert app.CoreProcess.call_args.args[1] == expected_path
+    assert workspace.default_path.is_dir()
 
     assert webview.create_window.call_args.args == ("MiniClaude",)
     options = webview.create_window.call_args.kwargs

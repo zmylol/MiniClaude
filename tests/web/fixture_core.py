@@ -36,27 +36,34 @@ def now() -> str:
 async def create_fixture_app() -> web.Application:
     broadcaster = IpcEventBroadcaster()
     core = SocketServer("127.0.0.1", 0, broadcaster=broadcaster)
+    cores = [core]
+    project_ports: dict[int, tuple[Path, IpcEventBroadcaster]] = {}
     sessions: dict[str, list[dict[str, Any]]] = {}
     metadata: dict[str, commands.SessionSummary] = {}
     session_tasks: dict[str, asyncio.Task[Any]] = {}
     temporary = tempfile.TemporaryDirectory(prefix="miniclaude-desktop-e2e-")
-    project_path = Path(temporary.name)
+    project_path = Path(temporary.name).resolve()
     permissions: dict[str, tuple[str, asyncio.Future[str]]] = {}
     running: set[asyncio.Task[Any]] = set()
+
+    # 功能：根据当前 TCP 连接识别项目和事件总线。
+    # 设计：三个真实端口隔离历史与事件，跨项目切换不能共享同一个模拟后端。
+    def request_project() -> tuple[Path, IpcEventBroadcaster]:
+        return project_ports[get_connection_writer().get_extra_info("sockname")[1]]
 
     # 功能：返回测试 core 的连通性信息。
     # 设计：沿用真实 PongResult 格式，版本名明确标记为 fixture。
     async def ping(params: dict[str, Any]) -> commands.PongResult:
         return commands.PongResult(
             server_version="e2e-fixture", uptime_ms=0,
-            received_at=now(), project_path=str(Path.cwd()),
+            received_at=now(), project_path=str(request_project()[0]),
         )
 
     # 功能：把浏览器订阅绑定到当前真实 TCP 连接。
     # 设计：由既有 Broadcaster 完成事件包封装、主题匹配与断开清理。
     async def subscribe(params: dict[str, Any]) -> commands.EventSubscribeResult:
         command = commands.EventSubscribeCommand.model_validate(params)
-        subscription_id = broadcaster.subscribe(
+        subscription_id = request_project()[1].subscribe(
             get_connection_writer(), command.topics, command.scope,
         )
         return commands.EventSubscribeResult(subscription_id=subscription_id)
@@ -70,10 +77,10 @@ async def create_fixture_app() -> web.Application:
         metadata[session_id] = commands.SessionSummary(
             session_id=session_id, title=command.title, mode=command.mode,
             status="waiting_for_input", model=command.model or "fixture-model",
-            permission_mode=command.permission_mode, project_path=str(project_path),
+            permission_mode=command.permission_mode, project_path=str(request_project()[0]),
             created_at=now(), updated_at=now(), run_ids=[],
         )
-        await broadcaster.handle(events.SessionCreatedEvent(
+        await request_project()[1].handle(events.SessionCreatedEvent(
             session_id=session_id, mode=command.mode, ts=now(),
         ))
         return commands.SessionCreateResult(session_id=session_id, status="waiting_for_input")
@@ -81,7 +88,11 @@ async def create_fixture_app() -> web.Application:
     # 功能：列出内存会话并暴露当前运行状态，供界面重载恢复。
     # 设计：使用生产摘要类型验证前端与 Core 的实际契约。
     async def list_sessions(params: dict[str, Any]) -> commands.SessionListResult:
-        return commands.SessionListResult(sessions=list(metadata.values()), project_path=str(project_path))
+        path = str(request_project()[0])
+        return commands.SessionListResult(
+            sessions=[item for item in metadata.values() if item.project_path == path],
+            project_path=path,
+        )
 
     # 功能：在内存中应用会话名称与模型权限设置。
     # 设计：让浏览器通过真实 RPC 验证按钮效果，不更改用户配置。
@@ -135,7 +146,7 @@ async def create_fixture_app() -> web.Application:
     # 设计：每个字符发布真实 LlmTokenEvent，固定 40 ms 延迟方便浏览器观察流式行为。
     async def stream(run_id: str, content: str) -> None:
         for token in content:
-            await broadcaster.handle(events.LlmTokenEvent(run_id=run_id, token=token, ts=now()))
+            await request_project()[1].handle(events.LlmTokenEvent(run_id=run_id, token=token, ts=now()))
             await asyncio.sleep(0.04)
 
     # 功能：通过独立 JSON-RPC 请求批准或拒绝挂起的虚拟工具调用。
@@ -152,7 +163,7 @@ async def create_fixture_app() -> web.Application:
             events.PermissionGrantedEvent if command.decision in {"allow_once", "always_allow"}
             else events.PermissionDeniedEvent
         )
-        await broadcaster.handle(event_type(
+        await request_project()[1].handle(event_type(
             run_id=run_id, tool_use_id=command.tool_use_id, decision=command.decision, ts=now(),
         ))
         decision.set_result(command.decision)
@@ -180,20 +191,20 @@ async def create_fixture_app() -> web.Application:
                     for item in command.attachments
                 ]]
             sessions[command.session_id].append({"role": "user", "content": content})
-            await broadcaster.handle(events.SessionMessageReceivedEvent(
+            await request_project()[1].handle(events.SessionMessageReceivedEvent(
                 session_id=command.session_id, content=command.content, ts=now(),
             ))
-            await broadcaster.handle(events.RunStartedEvent(
+            await request_project()[1].handle(events.RunStartedEvent(
                 run_id=run_id, session_id=command.session_id, goal=command.content, ts=now(),
             ))
-            await broadcaster.handle(events.LlmModelSelectedEvent(
+            await request_project()[1].handle(events.LlmModelSelectedEvent(
                 run_id=run_id, model=metadata[command.session_id].model,
                 strategy="static", ts=now(),
             ))
             introduction = "我先查看项目说明，确认前端需要对接的事件。\n\n"
             await stream(run_id, introduction)
             tool_params = {"path": "README.md"}
-            await broadcaster.handle(events.ToolCallStartedEvent(
+            await request_project()[1].handle(events.ToolCallStartedEvent(
                 run_id=run_id, tool_use_id=tool_id, tool_name="read_file",
                 params=tool_params, ts=now(),
             ))
@@ -203,20 +214,20 @@ async def create_fixture_app() -> web.Application:
                 tool_use_id=tool_id, tool_name="read_file", params=tool_params,
                 param_preview="README.md（测试专用虚拟文件，不读取磁盘）", run_id=run_id,
             )]
-            await broadcaster.handle(events.PermissionRequestedEvent(
+            await request_project()[1].handle(events.PermissionRequestedEvent(
                 run_id=run_id, tool_use_id=tool_id, tool_name="read_file", params=tool_params,
                 param_preview="README.md（测试专用虚拟文件，不读取磁盘）",
                 session_id=command.session_id, ts=now(),
             ))
             if await decision in {"allow_once", "always_allow"}:
                 metadata[command.session_id].pending_permissions = []
-                await broadcaster.handle(events.ToolCallFinishedEvent(
+                await request_project()[1].handle(events.ToolCallFinishedEvent(
                     run_id=run_id, tool_use_id=tool_id, tool_name="read_file", elapsed_ms=80,
                     output="# MiniClaude\n\n测试 README：使用事件流驱动的轻量 Agent。\n", ts=now(),
                 ))
                 conclusion = "README 已检查。前端通过 WebSocket 实时接收文本、工具状态和审批事件。你可以继续发送下一条消息。"
             else:
-                await broadcaster.handle(events.ToolCallFailedEvent(
+                await request_project()[1].handle(events.ToolCallFailedEvent(
                     run_id=run_id, tool_use_id=tool_id, tool_name="read_file", elapsed_ms=0,
                     error_class="permission_denied", error_message="用户拒绝了测试工具调用", ts=now(),
                 ))
@@ -225,15 +236,15 @@ async def create_fixture_app() -> web.Application:
             sessions[command.session_id].append({
                 "role": "assistant", "content": introduction + conclusion,
             })
-            await broadcaster.handle(events.RunFinishedEvent(
+            await request_project()[1].handle(events.RunFinishedEvent(
                 run_id=run_id, status="success", steps=2, ts=now(),
             ))
-            await broadcaster.handle(events.SessionWaitingForInputEvent(
+            await request_project()[1].handle(events.SessionWaitingForInputEvent(
                 session_id=command.session_id, last_run_id=run_id, ts=now(),
             ))
             return commands.SessionSendMessageResult(run_id=run_id)
         except asyncio.CancelledError:
-            await broadcaster.handle(events.RunFinishedEvent(
+            await request_project()[1].handle(events.RunFinishedEvent(
                 run_id=run_id, status="failed", reason="cancelled", steps=1, ts=now(),
             ))
             return commands.SessionSendMessageResult(run_id=run_id, cancelled=True)
@@ -253,10 +264,11 @@ async def create_fixture_app() -> web.Application:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        await core.stop()
+        for server in cores:
+            await server.stop()
         temporary.cleanup()
 
-    for method, handler in {
+    handlers = {
         "core.ping": ping,
         "event.subscribe": subscribe,
         "session.create": create_session,
@@ -270,21 +282,31 @@ async def create_fixture_app() -> web.Application:
         "session.delete": delete,
         "config.models": models,
         "plugins.list": plugins,
-    }.items():
-        core.register(method, handler)
-    await core.start()
-    assert isinstance(core._server, asyncio.Server)  # 仅测试读取绑定端口，不扩展生产接口。
-    port = core._server.sockets[0].getsockname()[1]
-    config = MiniConfig(port=port)
-    config.llm.default_model = "fixture-model"
-    # 功能：项目列表使用真实持久化与移除逻辑，选择器只返回夹具目录。
-    # 设计：两个目录共用模拟 Core，仅测试界面操作；Core 项目隔离由单元测试覆盖。
+    }
+    alternate = project_path / "another-project"
+    default = project_path / "desktop-state/workspace"
+    configs = {}
+    for index, path in enumerate((project_path, alternate, default)):
+        path.mkdir(parents=True, exist_ok=True)
+        events_bus = broadcaster if index == 0 else IpcEventBroadcaster()
+        server = core if index == 0 else SocketServer("127.0.0.1", 0, broadcaster=events_bus)
+        if index:
+            cores.append(server)
+        for method, handler in handlers.items():
+            server.register(method, handler)
+        await server.start()
+        assert isinstance(server._server, asyncio.Server)
+        port = server._server.sockets[0].getsockname()[1]
+        project_ports[port] = (path, events_bus)
+        configs[path] = MiniConfig(port=port)
+        configs[path].llm.default_model = "fixture-model"
+    config = configs[project_path]
     workspace = Workspace(
         config, project_path, storage_path=project_path / "desktop-state",
-        open_project=lambda path: config, pick_project=lambda: str(project_path),
+        open_project=lambda path: configs[path], pick_project=lambda: str(project_path),
+        default_path=default,
     )
-    alternate = project_path / "another-project"
-    alternate.mkdir()
+    workspace._configs.update(configs)
     await workspace._select(alternate)
     await workspace._select(project_path)
     app = create_app(config, project_path=project_path, workspace=workspace)

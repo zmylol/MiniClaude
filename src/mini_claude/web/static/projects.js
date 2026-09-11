@@ -4,8 +4,8 @@ const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}
 
 // 项目切换和列表管理使用轻量浮层，保留工作区可见与原有键盘焦点。
 export class ProjectPicker {
-  constructor({ command, onChange, toast }) {
-    Object.assign(this, { command, onChange, toast });
+  constructor({ command, onChange, onList, toast }) {
+    Object.assign(this, { command, onChange, onList, toast });
     this.panel = document.querySelector('#project-popover');
     this.sidebar = document.querySelector('#project-list');
     this.projects = [];
@@ -31,8 +31,7 @@ export class ProjectPicker {
   update(result) {
     this.projects = result.projects || [];
     this.currentPath = result.current_path;
-    const html = this.projects.map(project => `<div class="sidebar-project-row ${project.path === this.currentPath ? 'selected' : ''}"><button class="project-nav-item" data-project-action="select" data-path="${esc(project.path)}" title="${esc(project.path)}" ${project.path === this.currentPath ? 'aria-current="true"' : ''}>${icon('folder')}<span>${esc(project.name)}</span></button><button class="icon-button project-more" data-project-action="menu" data-path="${esc(project.path)}" aria-label="管理项目 ${esc(project.name)}" aria-haspopup="dialog" aria-expanded="false" title="项目操作">${icon('more')}</button></div>`).join('') || '<p class="sidebar-empty">尚未添加项目</p>';
-    if (this.sidebar.innerHTML !== html) this.sidebar.innerHTML = html;
+    this.onList(result);
     if (!this.panel.hidden && this.mode === 'picker') this.renderList();
   }
 
@@ -58,9 +57,9 @@ export class ProjectPicker {
 
   // 搜索框默认获得焦点，列表就地加载，关闭后的响应不再打开浮层。
   async open(anchor = document.querySelector('#project-button')) {
-    if (!this.begin(anchor, 'picker', '选择项目')) return;
+    if (!this.begin(anchor, 'picker', '选择工作区')) return;
     const version = this.version;
-    this.panel.innerHTML = `<div class="project-popover-heading">切换项目</div><label class="project-search">${icon('search')}<input type="search" placeholder="搜索项目…" aria-label="搜索项目" autocomplete="off"></label><div class="project-options"><p class="project-picker-empty" role="status">正在读取…</p></div><p class="project-action-error" role="alert" hidden></p><div class="project-popover-footer"><button data-project-action="open">${icon('plus')}打开文件夹…</button></div>`;
+    this.panel.innerHTML = `<div class="project-popover-heading">切换工作区</div><label class="project-search">${icon('search')}<input type="search" placeholder="搜索工作区…" aria-label="搜索工作区" autocomplete="off"></label><div class="project-options"><p class="project-picker-empty" role="status">正在读取…</p></div><p class="project-action-error" role="alert" hidden></p><div class="project-popover-footer"><button data-project-action="open">${icon('plus')}打开项目文件夹…</button></div>`;
     this.panel.querySelector('input').addEventListener('input', () => this.renderList());
     this.position();
     this.panel.querySelector('input').focus();
@@ -77,14 +76,14 @@ export class ProjectPicker {
     if (!input) return;
     const query = input.value.trim().toLocaleLowerCase();
     const matches = this.projects.filter(project => `${project.name}\n${project.path}`.toLocaleLowerCase().includes(query));
-    this.panel.querySelector('.project-options').innerHTML = matches.map(project => `<div class="project-option-row"><button class="project-option" data-project-action="select" data-path="${esc(project.path)}" title="${esc(project.path)}" ${project.path === this.currentPath ? 'aria-current="true"' : ''}>${icon('folder')}<span><strong>${esc(project.name)}</strong><small>${esc(project.path)}</small></span>${project.path === this.currentPath ? icon('check') : ''}</button><button class="icon-button project-remove" data-project-action="remove" data-path="${esc(project.path)}" aria-label="从列表移除 ${esc(project.name)}" title="从列表移除，保留文件和会话">${icon('x')}</button></div>`).join('') || `<p class="project-picker-empty">${query ? '没有匹配的项目' : '尚未添加项目，打开一个文件夹开始。'}</p>`;
+    this.panel.querySelector('.project-options').innerHTML = matches.map(project => `<div class="project-option-row"><button class="project-option" data-project-action="select" data-path="${esc(project.path)}" title="${esc(project.path)}" ${project.path === this.currentPath ? 'aria-current="true"' : ''}>${icon(project.is_default ? 'workspace' : 'folder')}<span><strong>${esc(project.name)}</strong><small>${esc(project.path)}</small></span>${project.path === this.currentPath ? icon('check') : ''}</button>${project.is_default ? '' : `<button class="icon-button project-remove" data-project-action="remove" data-path="${esc(project.path)}" aria-label="从列表移除 ${esc(project.name)}" title="从列表移除，保留文件和会话">${icon('x')}</button>`}</div>`).join('') || `<p class="project-picker-empty">${query ? '没有匹配的项目' : '尚未添加项目，打开一个文件夹开始。'}</p>`;
     this.position();
   }
 
   // 侧栏省略号直接展示项目管理操作，不再打开遮挡工作区的模态窗口。
   menu(anchor, path) {
     const project = this.projects.find(item => item.path === path);
-    if (!project || !this.begin(anchor, 'menu', `管理项目 ${project.name}`)) return;
+    if (!project || project.is_default || !this.begin(anchor, 'menu', `管理项目 ${project.name}`)) return;
     this.panel.innerHTML = `<div class="project-context-heading"><strong>${esc(project.name)}</strong><small title="${esc(project.path)}">${esc(project.path)}</small></div><button class="project-remove-action" data-project-action="remove" data-path="${esc(path)}">${icon('x')}从列表移除</button><p class="project-context-note">保留文件和会话记录</p><p class="project-action-error" role="alert" hidden></p>`;
     this.position();
     this.panel.querySelector('button').focus();

@@ -91,6 +91,7 @@ from mini_claude.core.bus.workspace_commands import (
     WorkspaceRemoveCommand,
     WorkspaceRemoveResult,
     WorkspaceSelectCommand,
+    WorkspaceSessionsCommand,
 )
 
 _OUTPUT_PATH = Path(__file__).parent.parent / "WIRE_PROTOCOL.md"
@@ -243,6 +244,7 @@ def generate() -> str:
             PluginsListCommand, PluginsAddCommand, PluginsSetEnabledCommand,
             PluginsRemoveCommand, PluginsResult,
             WorkspaceListCommand, WorkspacePickCommand, WorkspaceSelectCommand, WorkspaceRemoveCommand,
+            WorkspaceSessionsCommand,
             WorkspaceFilesCommand, WorkspaceGitStatusCommand, WorkspaceGitDiffCommand,
             WorkspacePullRequestsCommand, WorkspaceListResult, WorkspaceInfoResult,
             WorkspacePickCancelledResult, WorkspaceFilesResult, WorkspaceGitStatusResult,

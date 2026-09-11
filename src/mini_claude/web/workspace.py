@@ -12,10 +12,13 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from mini_claude.core.bus.commands import SessionSummary
 from mini_claude.core.bus.workspace_commands import WorkspaceCommand
 from mini_claude.core.config import MiniConfig
+from mini_claude.core.session.store import SessionStore
 
 WORKSPACE_COMMAND: TypeAdapter[WorkspaceCommand] = TypeAdapter(WorkspaceCommand)
+SESSIONS_ROOT = Path("~/.mini/sessions")
 
 class Workspace:
     # 保存项目入口与原生选择器，网关只公开不含凭据的项目摘要。
@@ -25,6 +28,7 @@ class Workspace:
         pick_project: Callable[[], str | None] | None = None,
         connection_project_path: Path | None = None,
         project_selected: bool = True,
+        default_path: Path | None = None,
     ) -> None:
         self.config = config
         self.project_path = project_path.resolve()
@@ -33,11 +37,14 @@ class Workspace:
         self._open_project = open_project
         self.pick_project = pick_project
         self.project_selected = project_selected
+        self.default_path = default_path.expanduser().resolve() if default_path else None
+        if self.default_path is not None:
+            self.default_path.mkdir(parents=True, exist_ok=True)
         self.before_remove: Callable[[Path], Awaitable[None]] | None = None
         self.removing_projects: set[Path] = set()
         self._lock = asyncio.Lock()
         self._configs = {self.project_path: config}
-        self._projects = self._read_projects()
+        self._projects = [path for path in self._read_projects() if path != self.default_path]
         if self.project_selected:
             self._remember(self.project_path)
 
@@ -61,7 +68,9 @@ class Workspace:
 
     # 用原子替换持久化最近项目顺序，避免退出中断留下半个 JSON。
     def _remember(self, path: Path) -> None:
-        projects = [path, *(item for item in self._projects if item != path)][:30]
+        projects = self._projects if path == self.default_path else [
+            path, *(item for item in self._projects if item != path)
+        ][:30]
         self._persist(projects, path)
         self._projects = projects
 
@@ -82,7 +91,8 @@ class Workspace:
     # 返回渲染器需要的项目摘要，始终不序列化完整运行配置。
     def info(self) -> dict[str, Any]:
         return {
-            "project_name": self.project_path.name if self.project_selected else "",
+            "project_name": ("默认工作区" if self.project_path == self.default_path
+                             else self.project_path.name) if self.project_selected else "",
             "project_path": str(self.project_path) if self.project_selected else None,
             "project_selected": self.project_selected,
             "model": self.config.llm.default_model,
@@ -91,8 +101,12 @@ class Workspace:
 
     # 最近项目仅表示界面登记关系，不改变目录、会话或项目设置。
     def listing(self) -> dict[str, Any]:
-        return {"projects": [{"path": str(path), "name": path.name}
-                             for path in self._projects if path.is_dir()],
+        projects: list[dict[str, Any]] = [{"path": str(path), "name": path.name}
+                                          for path in self._projects if path.is_dir()]
+        if self.default_path is not None:
+            projects.insert(0, {"path": str(self.default_path), "name": "默认工作区",
+                                "is_default": True})
+        return {"projects": projects,
                 "current_path": str(self.project_path) if self.project_selected else None,
                 "project_selected": self.project_selected}
 
@@ -103,7 +117,8 @@ class Workspace:
 
     # 调度器只允许访问仍登记的项目，不会重新领取已经移除的计划。
     def has_project(self, path: Path) -> bool:
-        return path.resolve() in self._projects and path.resolve() not in self.removing_projects
+        return (path.resolve() == self.default_path or path.resolve() in self._projects
+                ) and path.resolve() not in self.removing_projects
 
     # 只拦截属于桌面工作区的命令，其他 JSON-RPC 继续传给 core。
     def handles(self, method: str) -> bool:
@@ -126,6 +141,8 @@ class Workspace:
     async def _remove(self, path: Path) -> dict[str, Any]:
         path = path.expanduser().resolve()
         async with self._lock:
+            if path == self.default_path:
+                raise ValueError("默认工作区始终保留，不能从列表移除。")
             if path not in self._projects:
                 raise ValueError("这个项目已不在项目列表中。")
             self.removing_projects.add(path)
@@ -139,7 +156,8 @@ class Workspace:
                         raise ValueError("项目中有正在运行的任务，请先停止任务再移除。")
                 remaining = [item for item in self._projects if item != path and item.is_dir()]
                 selected = self.project_selected and self.project_path == path
-                next_path = remaining[0] if selected and remaining else None
+                next_path = (self.default_path or (remaining[0] if remaining else None)
+                             ) if selected else None
                 config = await self._config_for(next_path) if next_path else self.config
                 if self.before_remove is not None:
                     await self.before_remove(path)
@@ -179,6 +197,27 @@ class Workspace:
                 raise ValueError("请先在桌面中打开这个项目。")
             config = await self._config_for(project_path)
         return await self._request_core(config, method, params)
+
+    # 已运行项目读取实时摘要，未启动项目仅读元数据，浏览侧栏不启动模型或插件。
+    async def _sessions(self, path: Path) -> dict[str, Any]:
+        path = path.expanduser().resolve()
+        async with self._lock:
+            if not self.has_project(path):
+                raise ValueError("请先在桌面中打开这个项目。")
+            config = self._configs.get(path)
+        if config is not None:
+            return await self._request_core(config, "session.list", {})
+        sessions = await asyncio.to_thread(self._saved_sessions, path)
+        return {"project_path": str(path), "sessions": sessions}
+
+    # 只枚举明确属于目标目录的会话，不读取消息正文或收留无归属的旧记录。
+    def _saved_sessions(self, path: Path) -> list[dict[str, Any]]:
+        root = SESSIONS_ROOT.expanduser()
+        if not root.is_dir():
+            return []
+        return [SessionSummary(session_id=session.id, **session.to_dict()).model_dump()
+                for session in SessionStore(root).list_sessions()
+                if session.project_path == str(path)]
 
     # 用固定后端配置完成一次请求，移除检查无需再次获取工作区锁。
     async def _request_core(
@@ -327,6 +366,8 @@ class Workspace:
         params = WORKSPACE_COMMAND.validate_python({**params, "type": method}).model_dump()
         if method == "workspace.list":
             return self.listing()
+        if method == "workspace.sessions":
+            return await self._sessions(Path(params["path"]))
         if method == "workspace.remove":
             return await self._remove(Path(params["path"]))
         if method == "workspace.pick":
@@ -336,7 +377,7 @@ class Workspace:
             return await self._select(Path(selected)) if selected else {"cancelled": True}
         if method == "workspace.select":
             value = params.get("path")
-            if not isinstance(value, str) or Path(value).resolve() not in self._projects:
+            if not isinstance(value, str) or not self.has_project(Path(value)):
                 raise ValueError("请选择最近项目，或使用「打开文件夹」添加项目。")
             return await self._select(Path(value))
         async with self._lock:

@@ -18,6 +18,11 @@ class WorkspaceSelectCommand(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
+class WorkspaceSessionsCommand(BaseModel):
+    type: Literal["workspace.sessions"] = "workspace.sessions"
+    path: str = Field(min_length=1, max_length=4096)
+
+
 class WorkspaceRemoveCommand(BaseModel):
     type: Literal["workspace.remove"] = "workspace.remove"
     path: str = Field(min_length=1, max_length=4096)
@@ -43,7 +48,7 @@ class WorkspacePullRequestsCommand(BaseModel):
 
 WorkspaceCommand = Annotated[
     WorkspaceListCommand | WorkspacePickCommand | WorkspaceSelectCommand | WorkspaceRemoveCommand
-    | WorkspaceFilesCommand
+    | WorkspaceFilesCommand | WorkspaceSessionsCommand
     | WorkspaceGitStatusCommand | WorkspaceGitDiffCommand | WorkspacePullRequestsCommand,
     Discriminator("type"),
 ]
@@ -52,6 +57,7 @@ WorkspaceCommand = Annotated[
 class WorkspaceProject(BaseModel):
     path: str
     name: str
+    is_default: bool = False
 
 
 class WorkspaceListResult(BaseModel):

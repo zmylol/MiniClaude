@@ -379,6 +379,10 @@ def run_desktop(
         and "MINI_LLM_DEFAULT_MODEL" not in os.environ
     ):
         config.llm.default_model = default_connection["MINI_LLM_DEFAULT_MODEL"]
+    default_path = storage_path / "workspace"
+    default_path.mkdir(parents=True, exist_ok=True)
+    if not project_selected:
+        project_path = default_path
     core = CoreProcess(config, project_path, environment={
         **base_environment, DEFAULT_CONNECTION_ENV: json.dumps(default_connection),
     })
@@ -388,7 +392,7 @@ def run_desktop(
     workspace = Workspace(
         config, project_path, storage_path=storage_path, open_project=projects.open,
         connection_project_path=connection_source,
-        project_selected=project_selected,
+        default_path=default_path,
     )
     gateway = DesktopGateway(config, project_path, port=port, workspace=workspace)
     cleaned = False

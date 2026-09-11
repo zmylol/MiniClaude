@@ -21,7 +21,10 @@ async (page) => {
     await page.goto('http://127.0.0.1:7440/?desktop=1');
     await page.locator('#connection-status[data-state="connected"]').waitFor();
     const original = await page.locator('#project-name').innerText();
-    for (const [removed, expected] of [[original, 'another-project'], ['another-project', '选择项目']]) {
+    for (const [removed, expected] of [[original, '默认工作区'], ['another-project', '默认工作区']]) {
+      await page.locator('.project-nav-item').filter({ hasText: removed }).click();
+      await page.waitForFunction(value => document.querySelector('#project-name').textContent === value, removed);
+      await page.locator('#connection-status[data-state="connected"]').waitFor();
       await page.context().setOffline(true);
       // Chromium 离线模式不会关闭已有 WS，显式断开以模拟真实链路中断。
       await page.evaluate(() => window.__projectTestSockets.forEach(socket => socket.close()));
@@ -39,7 +42,7 @@ async (page) => {
       verify(verified && !verified.includes('session.list') && !verified.includes('session.create'), `断线期间移除 ${removed}：旧界面先核对项目，不向替代 Core 发送会话命令`);
       verify(await page.locator('#project-name').innerText() === expected, `重连后恢复正确工作区：${expected}`);
     }
-    verify(await page.locator('#prompt').isDisabled() && await page.locator('#empty-workspace').isVisible(), '断线期间移除最后项目后，输入区进入空状态');
+    verify(await page.locator('#prompt').isEnabled() && await page.locator('#empty-workspace').isHidden(), '断线期间移除最后项目后，默认工作区仍可用');
     return { passed: checks.length, checks };
   } finally {
     await page.context().setOffline(false);

@@ -34,6 +34,7 @@
         <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
         <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3.5"/></symbol>
         <symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-.7 2.4-2.1 1.2-2.4-.5-2 3.4 1.6 1.9v2.4l-1.6 1.9 2 3.4 2.4-.5 2.1 1.2L10 22h4l.7-2.8 2.1-1.2 2.4.5 2-3.4-1.6-1.9v-2.4l1.6-1.9-2-3.4-2.4.5-2.1-1.2L14 3Z"/><circle cx="12" cy="12.5" r="3"/></symbol>
+        <symbol id="i-workspace" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 14h5l2 3h4l2-3h5"/></symbol>
         <symbol id="i-pin" viewBox="0 0 24 24"><path d="m9 3 12 12m-9-9-5 5-4 1 9 9 1-4 5-5M3 21l5-5"/></symbol>
         <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m9 16 8-8a3 3 0 0 0-4-4L4 13a5 5 0 0 0 7 7L21 10M7 14l8-8"/></symbol>
       </defs>
@@ -52,7 +53,7 @@
         <button class="wordmark" data-action="profile" title="设置"><span class="brand-icon" aria-hidden="true"><svg class="icon"><use href="#i-terminal"/></svg></span>MiniClaude<span class="brand-chevron"><svg class="icon"><use href="#i-chevron-down"/></svg></span></button>
         <button id="search-button" class="icon-button" aria-label="搜索对话" aria-controls="search-input" aria-expanded="false" title="搜索对话 · ⌘/Ctrl K"><svg class="icon"><use href="#i-search"/></svg></button>
       </div>
-      <div class="sidebar-search"><input id="search-input" type="search" placeholder="搜索对话…" aria-label="搜索对话" autocomplete="off" hidden /></div>
+      <div class="sidebar-search"><input id="search-input" type="search" placeholder="搜索所有工作区的对话…" aria-label="搜索对话" autocomplete="off" hidden /></div>
 
       <nav class="primary-nav" aria-label="主导航">
         <button id="new-chat" class="nav-item"><svg class="icon"><use href="#i-compose"/></svg><span>新对话</span><span class="nav-shortcut" aria-hidden="true">⌘ ⇧ O</span></button>
@@ -62,17 +63,9 @@
       </nav>
 
       <div class="sidebar-scroll">
-        <section class="sidebar-section" aria-labelledby="pinned-heading">
-          <h2 id="pinned-heading" class="section-heading">置顶</h2>
-          <div id="pinned-list" class="conversation-list"><p class="sidebar-empty">重要的对话，留在手边</p></div>
-        </section>
         <section class="sidebar-section projects-section" aria-labelledby="projects-heading">
-          <div class="section-heading-row"><h2 id="projects-heading" class="section-heading">项目</h2><button class="icon-button small-button" data-action="open-project" aria-label="打开项目文件夹" title="打开项目文件夹"><svg class="icon"><use href="#i-plus"/></svg></button></div>
-          <div id="project-list"><button class="project-nav-item" data-action="project"><svg class="icon"><use href="#i-folder"/></svg><span id="sidebar-project-name">当前工作区</span></button></div>
-        </section>
-        <section class="sidebar-section recent-section" aria-labelledby="recent-heading">
-          <div class="section-heading-row"><h2 id="recent-heading" class="section-heading">最近<svg class="icon small"><use href="#i-chevron-down"/></svg></h2><button class="icon-button small-button" data-action="new-chat" aria-label="新建对话"><svg class="icon"><use href="#i-compose"/></svg></button></div>
-          <div id="recent-list" class="conversation-list"><p class="sidebar-empty">你的对话会显示在这里</p></div>
+          <div class="section-heading-row"><h2 id="projects-heading" class="section-heading">工作区</h2><button class="icon-button small-button" data-action="open-project" aria-label="打开项目文件夹" title="打开项目文件夹"><svg class="icon"><use href="#i-plus"/></svg></button></div>
+          <div id="project-list"></div>
         </section>
       </div>
 

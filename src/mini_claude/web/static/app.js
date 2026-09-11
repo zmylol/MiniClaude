@@ -3,6 +3,7 @@ import { EventConnection } from './transport.js';
 import { escapeHtml, markdown, historyMessages, readAttachments, composeContent } from './content.js';
 import { WorkspaceViews } from './views.js';
 import { ProjectPicker } from './projects.js';
+import { WorkspaceSidebar } from './sidebar.js';
 
 const $ = selector => document.querySelector(selector);
 const state = { conversations: [], runs: {}, activeId: null, events: {}, connected: false };
@@ -124,13 +125,7 @@ function icon(name) { return `<svg class="icon" aria-hidden="true"><use href="#i
 
 // 更新会话列表，置顶按钮与会话按钮保持独立以支持键盘操作。
 function renderSidebar() {
-  const query = $('#search-input').value.trim().toLocaleLowerCase();
-  const conversations = state.conversations.filter(c => (c.sessionId || c.messages.length) && `${c.title}\n${c.messages.filter(m => m.kind === 'text').map(m => m.text).join('\n')}`.toLocaleLowerCase().includes(query));
-  for (const [selector, pinned] of [['#pinned-list', true], ['#recent-list', false]]) {
-    const entries = conversations.filter(c => Boolean(c.pinned) === pinned);
-    const html = entries.map(c => `<div class="conversation-item ${c.id === state.activeId && !currentPage ? 'active' : ''}"><button class="conversation-select" data-conversation="${escapeHtml(c.id)}" ${c.id === state.activeId && !currentPage ? 'aria-current="page"' : ''}>${icon('message')}<span>${escapeHtml(c.title)}</span>${['running', 'waiting', 'sending'].includes(c.status) ? '<span class="conversation-running" aria-label="运行中">·</span>' : ''}</button><button class="icon-button pin-button" data-menu="${escapeHtml(c.id)}" aria-label="管理对话 ${escapeHtml(c.title)}" title="对话操作">${icon('more')}</button></div>`).join('') || `<p class="sidebar-empty">${query ? '没有匹配的对话' : pinned ? '重要的对话，留在手边' : '你的对话会显示在这里'}</p>`;
-    if ($(selector).innerHTML !== html) $(selector).innerHTML = html;
-  }
+  workspaceSidebar.render();
 }
 
 // 把消息转换为安全的展示内容；审批按钮只在仍有效且在线时启用。
@@ -285,7 +280,7 @@ function scheduleRender() {
 
 // 重连核对项目期间不允许业务命令落到另一个项目的 Core。
 function command(method, params) {
-  if (!state.connected && !['workspace.list', 'workspace.pick', 'workspace.select', 'workspace.remove'].includes(method)) return Promise.reject(new Error('正在恢复项目连接，请稍后再试。'));
+  if (!state.connected && !['workspace.list', 'workspace.sessions', 'workspace.pick', 'workspace.select', 'workspace.remove'].includes(method)) return Promise.reject(new Error('正在恢复项目连接，请稍后再试。'));
   return connection.command(method, params);
 }
 
@@ -336,7 +331,7 @@ const connection = new EventConnection(`${location.protocol === 'https:' ? 'wss:
       state.connected = true;
       renderConnection('connected');
       for (const event of connectionEvents.splice(0)) connection.onEvent(event);
-      if (hasProject()) reconcileSessions().catch(error => toast(`对话同步失败：${error.message}`));
+      if (hasProject()) reconcileSessions().then(resumeWorkspaceNavigation).catch(error => toast(`对话同步失败：${error.message}`));
     } catch (error) {
       if (version !== connectionVersion || switchingProject) return;
       toast(`项目连接恢复失败：${error.message}`);
@@ -346,7 +341,43 @@ const connection = new EventConnection(`${location.protocol === 'https:' ? 'wss:
   },
 });
 
-const projectPicker = new ProjectPicker({ command, onChange: changeProject, toast });
+const workspaceSidebar = new WorkspaceSidebar({
+  command, toast, onNavigate: navigateWorkspace,
+  getCurrent: () => ({ path: info.project_path, conversations: state.conversations, activeId: state.activeId, chatVisible: !currentPage }),
+  getCached: path => {
+    try { return JSON.parse(localStorage.getItem(`miniclaude.web.v1:${path}`) || '{}').conversations || []; }
+    catch { return []; }
+  },
+});
+const projectPicker = new ProjectPicker({ command, onChange: changeProject, onList: result => workspaceSidebar.update(result), toast });
+
+// 跨项目导航先保存目标，再切换后端；重新连接后才打开该项目的会话。
+async function navigateWorkspace(path, sessionId) {
+  if (switchingProject) return;
+  if (path === info.project_path) {
+    if (sessionId) await openSession(sessionId);
+    else newConversation();
+    return;
+  }
+  try {
+    sessionStorage.setItem('miniclaude.workspace-navigation', JSON.stringify({ path, sessionId }));
+    changeProject(await command('workspace.select', { path }));
+  } catch (error) {
+    sessionStorage.removeItem('miniclaude.workspace-navigation');
+    toast(error.message);
+  }
+}
+
+// 只消费与当前实际目录一致的导航，避免其他窗口切换时误开同名对话。
+async function resumeWorkspaceNavigation() {
+  const pending = JSON.parse(sessionStorage.getItem('miniclaude.workspace-navigation') || 'null');
+  if (!pending) return;
+  sessionStorage.removeItem('miniclaude.workspace-navigation');
+  if (pending.path !== info.project_path) return;
+  workspaceSidebar.expanded[pending.path] = true;
+  if (pending.sessionId) await openSession(pending.sessionId);
+  else newConversation();
+}
 
 // 创建远端会话后发送消息，命令等待期间事件处理与权限审批继续运行。
 async function sendMessage(event) {
@@ -514,7 +545,7 @@ function changeProject(result) {
   switchingProject = true;
   saveNow(); connection.close();
   $('#prompt').disabled = true;
-  toast(result.project_path ? '正在打开项目…' : '项目已移除');
+  toast(result.project_path ? '正在切换工作区…' : '项目已移除');
   location.reload();
 }
 // 合并 Core 会话目录，并只在没有流式更新时载入历史。
@@ -797,7 +828,8 @@ try {
   info = await response.json();
   storageKey += `:${info.project_path || 'no-project'}`;
   $('#project-name').textContent = info.project_name || '选择项目';
-  $('#sidebar-project-name').textContent = info.project_name || '打开项目';
+  $('#project-button').title = info.project_path || '选择工作区';
+  $('#new-chat').title = `在 ${info.project_name || '当前工作区'} 新建对话`;
 } catch (error) { toast(`项目信息加载失败：${error.message}`); }
 if (hasProject()) restore();
 if (!active()) newConversation();

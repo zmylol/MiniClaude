@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
-from mini_claude.core.bus.commands import PingCommand, PongResult
+from mini_claude.core.bus.commands import Command, PingCommand, PongResult
 from mini_claude.core.bus.events import CoreStartedEvent
+
+
+# 功能：工作区会话查询纳入统一协议，并要求显式提供目标工作区。
+# 设计：通过统一判别联合解析而非直接构造模型，防止遗漏命令注册。
+def test_workspace_sessions_command_has_explicit_target() -> None:
+    adapter = TypeAdapter(Command)
+    result = adapter.validate_python({"type": "workspace.sessions", "path": "/workspace"})
+    assert result.model_dump() == {"type": "workspace.sessions", "path": "/workspace"}
+    with pytest.raises(ValidationError):
+        adapter.validate_python({"type": "workspace.sessions", "path": ""})
 
 
 # 功能：验证 PingCommand 序列化后再反序列化，client 和 type 字段完整保留

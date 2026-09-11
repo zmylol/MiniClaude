@@ -126,7 +126,8 @@ async def desktop_command(
     before = (workspace.project_path, workspace.project_selected)
     try:
         if method not in {
-            "workspace.list", "workspace.pick", "workspace.select", "workspace.remove",
+            "workspace.list", "workspace.sessions", "workspace.pick", "workspace.select",
+            "workspace.remove",
         }:
             require_socket_project(ws, app)
         params = command.get("params", {})

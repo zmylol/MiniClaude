@@ -1680,6 +1680,37 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 }
 ```
 
+### WorkspaceSessionsCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `type` | `string` | no |
+| `path` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "type": {
+      "const": "workspace.sessions",
+      "default": "workspace.sessions",
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "title": "WorkspaceSessionsCommand",
+  "type": "object"
+}
+```
+
 ### WorkspaceFilesCommand
 
 | Field | Type | Required |
@@ -1798,6 +1829,11 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "is_default": {
+          "default": false,
+          "title": "Is Default",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2143,6 +2179,11 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "is_default": {
+          "default": false,
+          "title": "Is Default",
+          "type": "boolean"
         }
       },
       "required": [
@@ -2928,6 +2969,11 @@ Events sent over the IPC socket (daemon → client).
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "is_default": {
+          "default": false,
+          "title": "Is Default",
+          "type": "boolean"
         }
       },
       "required": [

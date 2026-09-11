@@ -28,6 +28,7 @@ from mini_claude.core.bus.workspace_commands import (
     WorkspacePullRequestsCommand,
     WorkspaceRemoveCommand,
     WorkspaceSelectCommand,
+    WorkspaceSessionsCommand,
 )
 from mini_claude.core.session.model import PermissionMode, SessionMode, SessionStatus
 
@@ -284,6 +285,7 @@ Command = Annotated[
     | WorkspacePullRequestsCommand
     | WorkspaceRemoveCommand
     | WorkspaceSelectCommand
+    | WorkspaceSessionsCommand
     | ScheduleCreateCommand
     | ScheduleDeleteCommand
     | ScheduleRunNowCommand
