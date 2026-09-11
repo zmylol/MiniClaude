@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import BaseModel
 
+from mini_claude.core.compact.compactor import Compactor
 from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
-from mini_claude.core.llm.types import LlmResponse, ToolCallBlock
+from mini_claude.core.llm.types import LlmResponse, ToolCallBlock, UsageStats
 from mini_claude.core.loop import AgentLoop
 from mini_claude.core.tools.base import BaseTool, ToolResult
 from mini_claude.core.tools.registry import ToolRegistry
@@ -134,6 +136,49 @@ async def test_tool_use_then_end_turn_marks_success() -> None:
     await loop.run(ctx)
     assert ctx.status == "success"
     assert ctx.step == 2
+
+
+@pytest.mark.parametrize(
+    ("context_pct", "threshold", "should_compact"),
+    [
+        pytest.param(0.79, 0.80, False, id="below-threshold"),
+        pytest.param(0.80, 0.80, True, id="at-threshold"),
+        pytest.param(0.81, 0.80, True, id="above-threshold"),
+        pytest.param(0.81, 0.0, False, id="disabled"),
+    ],
+)
+# 功能：验证上下文占比达到压缩阈值时触发压缩，低于阈值或禁用时不触发
+# 设计：用两步工具调用覆盖阈值边界，以异步压缩替身隔离摘要生成，同时确认循环正常完成
+async def test_auto_compaction_respects_context_threshold(
+    context_pct: float, threshold: float, should_compact: bool,
+) -> None:
+    provider = _MockProvider([
+        LlmResponse(
+            stop_reason="tool_use",
+            tool_calls=[_tc()],
+            usage=UsageStats(input_tokens=0, output_tokens=0, context_pct=context_pct),
+        ),
+        LlmResponse(stop_reason="end_turn", text="summary"),
+    ])
+    registry = ToolRegistry()
+    registry.register(_EchoTool())
+    compactor = AsyncMock(spec=Compactor)
+    loop = AgentLoop(
+        provider, registry, EventBus(),  # type: ignore[arg-type]
+        compactor=compactor,
+        compact_threshold=threshold,
+    )
+    ctx = _ctx()
+
+    await loop.run(ctx)
+
+    if should_compact:
+        compactor.compact.assert_awaited_once_with(ctx, provider)
+    else:
+        compactor.compact.assert_not_awaited()
+    assert ctx.status == "success"
+    assert ctx.step == 2
+    assert ctx.result == "summary"
 
 
 # 功能：验证工具结果按 Anthropic 格式（tool_result user 消息）追加到消息历史

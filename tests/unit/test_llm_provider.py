@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from pydantic import BaseModel
 
+from mini_claude.core.bus.events import LlmUsageEvent
+from mini_claude.core.compact.compactor import Compactor
+from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.llm.provider import AnthropicProvider
 from mini_claude.core.llm.types import LlmResponse
+from mini_claude.core.loop import AgentLoop
+from mini_claude.core.tools.builtin.read_file import ReadFileTool
+from mini_claude.core.tools.registry import ToolRegistry
 
 # --- helpers -----------------------------------------------------------------
 
@@ -26,17 +34,19 @@ def _make_usage(
     return u
 
 
+# 构造包含完整缓存计量的模拟最终响应
 def _make_final(
     stop_reason: str = "end_turn",
     content: list[MagicMock] | None = None,
     input_tokens: int = 100,
     output_tokens: int = 50,
     cache_read: int = 0,
+    cache_create: int = 0,
 ) -> MagicMock:
     msg = MagicMock()
     msg.stop_reason = stop_reason
     msg.content = content or []
-    msg.usage = _make_usage(input_tokens, output_tokens, cache_read)
+    msg.usage = _make_usage(input_tokens, output_tokens, cache_read, cache_create)
     return msg
 
 
@@ -65,6 +75,7 @@ class FakeStream:
         return self._final
 
 
+# 将模拟流和缓存计量注入真实 provider
 def _make_provider(
     texts: list[str] | None = None,
     stop_reason: str = "end_turn",
@@ -72,8 +83,9 @@ def _make_provider(
     input_tokens: int = 100,
     output_tokens: int = 50,
     cache_read: int = 0,
+    cache_create: int = 0,
 ) -> tuple[AnthropicProvider, MagicMock]:
-    final = _make_final(stop_reason, content, input_tokens, output_tokens, cache_read)
+    final = _make_final(stop_reason, content, input_tokens, output_tokens, cache_read, cache_create)
     client = MagicMock()
     client.messages.stream.return_value = FakeStream(texts or [], final)
     return AnthropicProvider(model="test-model", client=client), client
@@ -126,17 +138,113 @@ async def test_token_events_published_per_chunk() -> None:
     assert tokens[1].token == " world"  # type: ignore[attr-defined]
 
 
-# 功能：验证 llm.usage 事件中的 token 统计字段（input、output、cache_read）正确
-# 设计：向 FakeStream 注入固定 usage 值，断言三个字段精确匹配，因为这些字段是 S6 成本计算的数据源
-async def test_usage_event_published_after_stream() -> None:
-    provider, _ = _make_provider(input_tokens=200, output_tokens=75, cache_read=150)
-    _, events = await _chat(provider)
-    usage_events = [e for e in events if e.type == "llm.usage"]  # type: ignore[attr-defined]
+@pytest.mark.parametrize(
+    ("cache_read", "cache_create", "expected_pct"),
+    [
+        pytest.param(0, 0, 0.001, id="uncached"),
+        pytest.param(150, 0, 0.00175, id="cache-read"),
+        pytest.param(0, 50, 0.00125, id="cache-create"),
+        pytest.param(150, 50, 0.002, id="cache-read-and-create"),
+    ],
+)
+# 功能：验证缓存读写计入上下文占比，事件与返回值仍保留各项原始计量
+# 设计：使用独立的预期比例覆盖四种缓存组合，同时检查两个消费出口，防止漏计、重复计入或语义漂移
+async def test_usage_event_published_after_stream(
+    cache_read: int, cache_create: int, expected_pct: float,
+) -> None:
+    provider, _ = _make_provider(
+        input_tokens=200, output_tokens=75, cache_read=cache_read, cache_create=cache_create,
+    )
+    result, events = await _chat(provider)
+    usage_events = [e for e in events if isinstance(e, LlmUsageEvent)]
     assert len(usage_events) == 1
     ue = usage_events[0]
-    assert ue.input_tokens == 200  # type: ignore[attr-defined]
-    assert ue.output_tokens == 75  # type: ignore[attr-defined]
-    assert ue.cache_read_input_tokens == 150  # type: ignore[attr-defined]
+    assert result.usage is not None
+    for usage in (ue, result.usage):
+        assert usage.input_tokens == 200
+        assert usage.output_tokens == 75
+        assert usage.cache_read_input_tokens == cache_read
+        assert usage.cache_creation_input_tokens == cache_create
+        assert usage.context_pct == pytest.approx(expected_pct)
+
+
+@pytest.mark.parametrize(
+    ("cache_fields", "expected_read", "expected_create", "expected_pct"),
+    [
+        pytest.param({}, 0, 0, 0.001, id="missing"),
+        pytest.param(
+            {"cache_read_input_tokens": None, "cache_creation_input_tokens": None},
+            0, 0, 0.001, id="null",
+        ),
+        pytest.param({"cache_read_input_tokens": 150}, 150, 0, 0.00175, id="missing-create"),
+        pytest.param({"cache_creation_input_tokens": 50}, 0, 50, 0.00125, id="missing-read"),
+        pytest.param(
+            {"cache_read_input_tokens": None, "cache_creation_input_tokens": 50},
+            0, 50, 0.00125, id="null-read",
+        ),
+        pytest.param(
+            {"cache_read_input_tokens": 150, "cache_creation_input_tokens": None},
+            150, 0, 0.00175, id="null-create",
+        ),
+    ],
+)
+# 功能：验证缺失或为 None 的缓存字段按零处理且不丢弃另一项有效计量
+# 设计：用真实缺属性的 SimpleNamespace 模拟可选字段，避免 MagicMock 自动创建属性掩盖兼容性错误
+async def test_optional_cache_usage_fields(
+    cache_fields: dict[str, int | None], expected_read: int, expected_create: int,
+    expected_pct: float,
+) -> None:
+    final = _make_final()
+    final.usage = SimpleNamespace(input_tokens=200, output_tokens=75, **cache_fields)
+    client = MagicMock()
+    client.messages.stream.return_value = FakeStream([], final)
+    provider = AnthropicProvider(model="test-model", client=client)
+
+    result, events = await _chat(provider)
+
+    usage_events = [e for e in events if isinstance(e, LlmUsageEvent)]
+    assert len(usage_events) == 1
+    assert result.usage is not None
+    for usage in (usage_events[0], result.usage):
+        assert usage.input_tokens == 200
+        assert usage.output_tokens == 75
+        assert usage.cache_read_input_tokens == expected_read
+        assert usage.cache_creation_input_tokens == expected_create
+        assert usage.context_pct == pytest.approx(expected_pct)
+
+
+# 功能：验证缓存占大头时真实 provider 的占比会让工具回合触发自动压缩
+# 设计：仅替换 SDK 流与压缩动作，贯通 provider、事件和 Loop；161000 输入超过 80% 阈值而未缓存输入仅为 1000
+async def test_cached_input_triggers_loop_compaction(tmp_path: Path) -> None:
+    source = tmp_path / "input.txt"
+    source.write_text("cached context probe", encoding="utf-8")
+    tool_block = MagicMock()
+    tool_block.type = "tool_use"
+    tool_block.id = "read-probe"
+    tool_block.name = "read_file"
+    tool_block.input = {"path": str(source)}
+    provider, client = _make_provider(
+        stop_reason="tool_use", content=[tool_block], input_tokens=1_000,
+        cache_read=150_000, cache_create=10_000,
+    )
+    client.messages.stream.side_effect = [
+        client.messages.stream.return_value,
+        FakeStream(["done"], _make_final()),
+    ]
+    registry = ToolRegistry()
+    registry.register(ReadFileTool())
+    compactor = MagicMock(spec=Compactor)
+    loop = AgentLoop(
+        provider, registry, EventBus(), compactor=compactor, compact_threshold=0.8,
+    )
+    context = ExecutionContext(run_id="cache-probe", goal="read input.txt", max_steps=3)
+
+    await loop.run(context)
+
+    assert context.status == "success"
+    assert context.result == "done"
+    assert context.step == 2
+    compactor.compact.assert_awaited_once_with(context, provider)
 
 
 # 功能：验证事件发布顺序为 model_selected → token（×N） → usage
