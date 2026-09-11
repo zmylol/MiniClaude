@@ -13,6 +13,75 @@ from mini_claude.core.config import MiniConfig
 from mini_claude.web.workspace import Workspace
 
 
+# 功能：默认工作区有真实目录和独立后端，可切换且不会重复登记或被移除。
+# 设计：独立端口标识两个后端，验证默认目录不依赖任何 Git 项目。
+async def test_default_workspace_is_permanent_and_uses_its_own_core(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    default = tmp_path / "storage/workspace"
+    opener = MagicMock(return_value=MiniConfig(port=8123))
+    workspace = Workspace(MiniConfig(), project, storage_path=default.parent,
+                          default_path=default, open_project=opener)
+    assert default.is_dir()
+    assert workspace.listing()["projects"][0] == {
+        "path": str(default), "name": "默认工作区", "is_default": True,
+    }
+    result = await workspace.handle("workspace.select", {"path": str(default)})
+    assert result["project_path"] == str(default)
+    assert result["project_name"] == "默认工作区"
+    assert result["core_port"] == 8123
+    workspace._request_core = AsyncMock(return_value={"session_id": "sess-default"})
+    await workspace.request_core("session.create", {"title": "随手聊聊"})
+    assert workspace._request_core.call_args.args[0].port == 8123
+    with pytest.raises(ValueError, match="默认工作区"):
+        await workspace.handle("workspace.remove", {"path": str(default)})
+    assert len(workspace.listing()["projects"]) == 2
+    record = json.loads((default.parent / "projects.json").read_text())
+    assert record["projects"] == [str(project)]
+    assert record["current_path"] == str(default)
+
+
+# 功能：移除当前项目回到可用默认工作区，重建实例后仍保留默认选择和项目历史。
+# 设计：模拟真实持久化与独立 Core 响应，排除只修改界面名称的实现。
+async def test_remove_current_returns_to_default_and_survives_restart(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    history = project / "history.json"
+    history.write_text("keep")
+    default = tmp_path / "storage/workspace"
+    workspace = Workspace(MiniConfig(), project, storage_path=default.parent,
+                          default_path=default, open_project=lambda _: MiniConfig(port=8123))
+    workspace._request_core = AsyncMock(return_value={"sessions": []})
+    result = await workspace.handle("workspace.remove", {"path": str(project)})
+    assert result["project_path"] == str(default)
+    assert result["project_selected"] is True
+    restored = Workspace(MiniConfig(port=8123), default, storage_path=default.parent,
+                         default_path=default)
+    restored.require_project()
+    assert restored.listing()["projects"] == [{
+        "path": str(default), "name": "默认工作区", "is_default": True,
+    }]
+    assert history.read_text() == "keep"
+
+
+# 功能：展开其他项目仅查询该项目的会话摘要，不改变当前执行目录；未登记路径不能查询。
+# 设计：检查请求使用的后端配置与项目选择，覆盖侧栏跨项目读取的隔离边界。
+async def test_workspace_sessions_are_scoped_without_changing_selection(tmp_path: Path) -> None:
+    default = tmp_path / "storage/workspace"
+    workspace = Workspace(MiniConfig(), tmp_path, default_path=default,
+                          open_project=lambda _: MiniConfig(port=8123))
+    workspace._request_core = AsyncMock(return_value={"sessions": [{
+        "session_id": "sess-default", "title": "默认聊天", "project_path": str(default),
+    }]})
+    result = await workspace.handle("workspace.sessions", {"path": str(default)})
+    assert result["sessions"][0]["session_id"] == "sess-default"
+    assert workspace.project_path == tmp_path
+    assert workspace._request_core.call_args.args[0].port == 8123
+    assert workspace._request_core.call_args.args[1:] == ("session.list", {})
+    with pytest.raises(ValueError, match="打开"):
+        await workspace.handle("workspace.sessions", {"path": str(tmp_path / "unknown")})
+
+
 # 功能：原生选择取消无副作用，选定项目持久化并可在重启后从最近列表切换。
 # 设计：用独立配置和临时目录确认返回结果、当前路径与持久记录一致。
 async def test_picker_cancel_switch_and_recent_projects(tmp_path: Path) -> None:
