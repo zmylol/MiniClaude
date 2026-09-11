@@ -164,7 +164,7 @@ async def test_auto_compaction_respects_context_threshold(
     registry.register(_EchoTool())
     compactor = AsyncMock(spec=Compactor)
     loop = AgentLoop(
-        provider, registry, EventBus(),  # type: ignore[arg-type]
+        provider, registry, EventBus(),
         compactor=compactor,
         compact_threshold=threshold,
     )
