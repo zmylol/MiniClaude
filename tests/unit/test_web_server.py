@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from aiohttp import WSMsgType
@@ -12,6 +13,41 @@ from aiohttp.test_utils import TestClient, TestServer
 from mini_claude.core.config import MiniConfig
 from mini_claude.web import server
 from mini_claude.web.workspace import Workspace
+
+
+# 功能：桌面重连时重新取得当前项目 Core，旧端口离线不会永久卡住会话入口。
+# 设计：使用离线旧配置和真实新 TCP 后端，要求网关先调用项目启动器再转发会话命令。
+async def test_desktop_reconnect_refreshes_core_before_forwarding(tmp_path: Path, free_port: int) -> None:
+    received = []
+
+    # 功能：新后端返回真实请求关联的会话响应。
+    # 设计：等待网关转发内容，避免仅断言启动器调用而漏掉仍连接旧端口的错误。
+    async def core_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            while line := await reader.readline():
+                command = json.loads(line)
+                received.append(command["method"])
+                writer.write(json.dumps({"id": command["id"], "result": {"sessions": []}}).encode() + b"\n")
+                await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async with await asyncio.start_server(core_handler, "127.0.0.1", 0) as core:
+        restored = MiniConfig(port=core.sockets[0].getsockname()[1])
+        opener = MagicMock(return_value=restored)
+        workspace = Workspace(MiniConfig(port=free_port), tmp_path, open_project=opener)
+        app = server.create_app(workspace.config, tmp_path, workspace=workspace)
+        async with TestClient(TestServer(app)) as client:
+            origin = str(client.make_url("/")).rstrip("/")
+            async with client.ws_connect("/ws", origin=origin) as ws:
+                await ws.send_json({"id": 1, "method": "session.list", "params": {}})
+                response = await asyncio.wait_for(ws.receive(), 3)
+                assert response.type == WSMsgType.TEXT, "重连不应继续关闭到旧 Core 的连接"
+                assert json.loads(response.data) == {"id": 1, "result": {"sessions": []}}
+        opener.assert_called_once_with(tmp_path)
+        assert workspace.config is restored
+        assert received == ["session.list"]
 
 
 # 功能：为网关测试提供与项目文件隔离的静态页面。

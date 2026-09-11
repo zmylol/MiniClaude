@@ -20,7 +20,7 @@ test('workspace summaries retain pins without leaking stale or foreign sessions'
   assert.equal(result[0].id, 'local-pin');
 });
 
-// 功能：当前项目支持正文搜索、最近排序和未发送草稿的隐藏。
+// 功能：当前项目支持正文搜索、最近排序，仅隐藏没有内容的非活动空会话。
 // 设计：直接使用会话数据模拟恢复历史后的搜索，避免依赖具体 DOM 布局。
 test('active workspace searches content and hides empty drafts', () => {
   const conversations = [
@@ -31,4 +31,16 @@ test('active workspace searches content and hides empty drafts', () => {
   assert.deepEqual(sidebarConversations({ conversations }).map(item => item.id), ['new', 'old']);
   assert.deepEqual(sidebarConversations({ conversations, query: '查找' }).map(item => item.id), ['old']);
   assert.deepEqual(sidebarConversations({ conversations, query: '不存在' }), []);
+});
+
+test('workspace drafts remain discoverable and searchable before the first send', () => {
+  const conversations = [
+    { id: 'draft', title: '新对话', draft: '尚未发送的计划', messages: [] },
+    { id: 'file', title: '新对话', attachments: [{ name: 'notes.txt' }], messages: [] },
+    { id: 'active', title: '新对话', messages: [] },
+    { id: 'unused', title: '新对话', messages: [] },
+  ];
+  assert.deepEqual(sidebarConversations({ conversations, activeId: 'active' }).map(item => item.id), ['draft', 'file', 'active']);
+  assert.deepEqual(sidebarConversations({ sessions: [], conversations, query: '计划' }).map(item => item.id), ['draft']);
+  assert.match(sidebarConversations({ conversations })[0].title, /尚未发送的计划/);
 });
