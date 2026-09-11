@@ -104,6 +104,30 @@ async def test_inactive_workspace_history_does_not_start_a_core(
     assert workspace.project_path == tmp_path
 
 
+# 功能：已登记后台 Core 退出后，实际操作通过启动器重新取得可用连接。
+# 设计：先放入旧配置，再令启动器返回新端口，验证请求没有绕过恢复逻辑。
+async def test_background_workspace_request_refreshes_cached_core(tmp_path: Path) -> None:
+    restored = MiniConfig(port=8123)
+    opener = MagicMock(return_value=restored)
+    workspace = Workspace(MiniConfig(), tmp_path, open_project=opener)
+    workspace._request_core = AsyncMock(return_value={"session_id": "sess-restored"})
+    await workspace.request_core_for(tmp_path, "session.create", {"title": "恢复后台任务"})
+    opener.assert_called_once_with(tmp_path)
+    assert workspace._request_core.call_args.args[0] is restored
+
+
+# 功能：浏览已退出后台项目时仍能读取磁盘历史，不为浏览操作启动 Core。
+# 设计：明确模拟连接被拒绝，并验证只读摘要回退及启动器未被调用。
+async def test_inactive_core_refused_connection_still_lists_saved_history(tmp_path: Path) -> None:
+    opener = MagicMock()
+    workspace = Workspace(MiniConfig(), tmp_path, open_project=opener)
+    workspace._request_core = AsyncMock(side_effect=ConnectionRefusedError)
+    workspace._saved_sessions = MagicMock(return_value=[{"session_id": "sess-saved"}])
+    result = await workspace.handle("workspace.sessions", {"path": str(tmp_path)})
+    assert result == {"project_path": str(tmp_path), "sessions": [{"session_id": "sess-saved"}]}
+    opener.assert_not_called()
+
+
 # 功能：原生选择取消无副作用，选定项目持久化并可在重启后从最近列表切换。
 # 设计：用独立配置和临时目录确认返回结果、当前路径与持久记录一致。
 async def test_picker_cancel_switch_and_recent_projects(tmp_path: Path) -> None:

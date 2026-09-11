@@ -48,7 +48,7 @@ class AnthropicProvider:
         if client is None:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             if not api_key:
-                raise SystemExit("ANTHROPIC_API_KEY not set")
+                raise RuntimeError("ANTHROPIC_API_KEY not set")
             self._client: Any = anthropic.AsyncAnthropic(api_key=api_key)
         else:
             self._client = client

@@ -109,8 +109,12 @@ class CoreProcess:
 
     # 复用已有 core，否则启动项目后端并等待其监听端口就绪。
     def start(self, timeout: float = 15) -> None:
+        if self.process is not None and self.process.poll() is not None:
+            self.stop()
         if self.available():
             return
+        if self.process is not None:
+            raise RuntimeError("mini-core 进程仍在运行但暂时无法连接，请稍后重试。")
         self.process = subprocess.Popen(
             [sys.executable, "-m", "mini_claude.desktop.core"
              if DEFAULT_CONNECTION_ENV in self.environment else "mini_claude.core"],
@@ -196,7 +200,7 @@ class ProjectCores:
     def _open(self, project_path: Path) -> MiniConfig:
         project_path = project_path.resolve()
         if project_path in self.cores:
-            return self.cores[project_path].config
+            return self._start_initial(project_path)
         try:
             snapshot = subprocess.run(
                 [sys.executable, "-c",

@@ -44,3 +44,10 @@ test('workspace drafts remain discoverable and searchable before the first send'
   assert.deepEqual(sidebarConversations({ sessions: [], conversations, query: '计划' }).map(item => item.id), ['draft']);
   assert.match(sidebarConversations({ conversations })[0].title, /尚未发送的计划/);
 });
+
+test('failed text awaiting recovery remains accessible outside its workspace', () => {
+  const conversations = [{ id: 'recover', title: '新对话', messages: [], failedDraft: { text: '尚待恢复的失败输入', files: [] } }];
+  const entries = sidebarConversations({ sessions: [], conversations, query: '失败输入' });
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].id, 'recover');
+});

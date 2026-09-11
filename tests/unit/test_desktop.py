@@ -91,6 +91,24 @@ def test_core_start_failure_reaps_child(monkeypatch: pytest.MonkeyPatch, tmp_pat
     process.wait.assert_called_once_with(timeout=5)
 
 
+# 功能：健康检查不能覆盖仍存活的自有进程。
+# 设计：模拟存活但暂时失联，检查不会启动重复后端或遗失所有权。
+def test_core_reconnect_does_not_replace_an_unresponsive_owned_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    core = app.CoreProcess(MiniConfig(), tmp_path)
+    process = MagicMock()
+    process.poll.return_value = None
+    core.process = process
+    spawn = MagicMock()
+    monkeypatch.setattr(core, "available", lambda: False)
+    monkeypatch.setattr(app.subprocess, "Popen", spawn)
+    with pytest.raises(RuntimeError):
+        core.start(timeout=0)
+    assert core.process is process
+    spawn.assert_not_called()
+
+
 # 功能：后端超时必须退出启动流程并回收子进程。
 # 设计：强制结束仅作为当前实例子进程不响应退出时的后备。
 def test_core_timeout_terminates_owned_child(
@@ -457,7 +475,7 @@ def test_project_cores_keep_running_projects_and_isolate_environment(
     assert factory.call_args.kwargs["environment"] == baseline
     assert config.port != 7437
     assert config.llm.default_model == "model-b"
-    second.start.assert_called_once()
+    assert second.start.call_count == 2
     first.stop.assert_not_called()
     registry.stop()
     first.stop.assert_called_once()

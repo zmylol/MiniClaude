@@ -2,16 +2,20 @@ import { escapeHtml as esc } from './content.js';
 
 const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
+export const hasConversationDraft = item => Boolean(item.draft?.trim() || item.attachments?.length || item.missingAttachments?.length || item.failedDraft?.text?.trim() || item.failedDraft?.files?.length);
+
 // 以项目内远端目录为准合并本地置顶偏好，当前项目仍可搜索已加载的正文。
-export function sidebarConversations({ sessions, conversations = [], query = '' }) {
-  const entries = sessions == null ? conversations : sessions.map(remote => ({
+export function sidebarConversations({ sessions, conversations = [], query = '', activeId }) {
+  const entries = sessions == null ? conversations : [...sessions.map(remote => ({
     ...conversations.find(item => item.sessionId === remote.session_id),
     sessionId: remote.session_id, title: remote.title || '新对话', updatedAt: remote.updated_at,
     status: remote.running ? 'running' : 'idle',
-  }));
+  })), ...conversations.filter(item => !item.sessionId && hasConversationDraft(item))];
   const search = query.trim().toLocaleLowerCase();
-  return entries.filter(item => (item.sessionId || item.messages?.length)
-    && `${item.title}\n${(item.messages || []).filter(message => message.kind === 'text').map(message => message.text).join('\n')}`.toLocaleLowerCase().includes(search))
+  return entries.filter(item => item.sessionId || item.messages?.length || hasConversationDraft(item) || item.id === activeId)
+    .map(item => ({ ...item, title: !item.sessionId && hasConversationDraft(item)
+      ? `草稿 · ${(item.title && item.title !== '新对话' ? item.title : item.draft?.trim() || item.attachments?.[0]?.name || item.missingAttachments?.[0] || item.failedDraft?.text?.trim() || item.failedDraft?.files?.[0]?.name || '新对话').slice(0, 40)}` : item.title }))
+    .filter(item => `${item.title}\n${item.draft || ''}\n${item.failedDraft?.text || ''}\n${(item.messages || []).filter(message => message.kind === 'text').map(message => message.text).join('\n')}`.toLocaleLowerCase().includes(search))
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
       || (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 }
@@ -36,6 +40,12 @@ export class WorkspaceSidebar {
       if (!Object.hasOwn(this.expanded, project.path)) this.expanded[project.path] = project.is_default || project.path === result.current_path;
     }
     this.render();
+  }
+
+  setExpanded(path, expanded) {
+    this.expanded[path] = expanded;
+    try { localStorage.setItem('miniclaude.sidebar.v1', JSON.stringify(this.expanded)); }
+    catch { this.toast('侧栏展开状态未能保存。'); }
   }
 
   // 只读取会话摘要；失败在所属组内展示，并允许单独重试。
@@ -63,13 +73,14 @@ export class WorkspaceSidebar {
       const entries = expanded ? sidebarConversations({
         sessions: selected ? null : history?.sessions || [],
         conversations: selected ? current.conversations : history?.conversations || [], query,
+        activeId: selected ? current.activeId : null,
       }) : [];
       const path = esc(project.path);
       const name = esc(project.name);
       const listId = `workspace-conversations-${index}`;
       const rows = entries.map(item => {
         const active = selected && item.id === current.activeId && current.chatVisible;
-        return `<div class="conversation-item ${active ? 'active' : ''}"><button class="conversation-select" ${selected ? `data-conversation="${esc(item.id)}"` : `data-workspace-session="${esc(item.sessionId)}" data-path="${path}"`} ${active ? 'aria-current="page"' : ''} title="${esc(item.title)}">${icon(item.pinned ? 'pin' : 'message')}<span>${esc(item.title)}</span>${['running', 'waiting', 'sending'].includes(item.status) ? '<span class="conversation-running" aria-label="运行中">·</span>' : ''}</button>${selected ? `<button class="icon-button pin-button" data-menu="${esc(item.id)}" aria-label="管理对话 ${esc(item.title)}" title="对话操作">${icon('more')}</button>` : ''}</div>`;
+        return `<div class="conversation-item ${active ? 'active' : ''}"><button class="conversation-select" ${selected ? `data-conversation="${esc(item.id)}"` : `${item.sessionId ? `data-workspace-session="${esc(item.sessionId)}"` : `data-workspace-conversation="${esc(item.id)}"`} data-path="${path}"`} ${active ? 'aria-current="page"' : ''} title="${esc(item.title)}">${icon(item.pinned ? 'pin' : 'message')}<span>${esc(item.title)}</span>${['running', 'waiting', 'sending'].includes(item.status) ? '<span class="conversation-running" aria-label="运行中">·</span>' : ''}</button>${selected ? `<button class="icon-button pin-button" data-menu="${esc(item.id)}" aria-label="管理对话 ${esc(item.title)}" title="对话操作">${icon('more')}</button>` : ''}</div>`;
       }).join('');
       const empty = !selected && history?.error
         ? `<p class="sidebar-empty" role="status">${esc(history.error)}</p><button class="workspace-retry" data-workspace-retry data-path="${path}">重新加载</button>`
@@ -91,15 +102,13 @@ export class WorkspaceSidebar {
     if (!target) return;
     const path = target.dataset.path;
     if (Object.hasOwn(target.dataset, 'workspaceToggle')) {
-      this.expanded[path] = !this.expanded[path];
-      try { localStorage.setItem('miniclaude.sidebar.v1', JSON.stringify(this.expanded)); }
-      catch { this.toast('侧栏展开状态未能保存。'); }
+      this.setExpanded(path, !this.expanded[path]);
       if (this.expanded[path] && path !== this.getCurrent().path) this.load(path);
       else this.render();
     } else if (Object.hasOwn(target.dataset, 'workspaceRetry')) this.load(path);
-    else if (Object.hasOwn(target.dataset, 'workspaceNew') || target.dataset.workspaceSession) {
-      this.expanded[path] = true;
-      this.onNavigate(path, target.dataset.workspaceSession || null);
+    else if (Object.hasOwn(target.dataset, 'workspaceNew') || target.dataset.workspaceSession || target.dataset.workspaceConversation) {
+      this.setExpanded(path, true);
+      this.onNavigate(path, target.dataset.workspaceSession || null, target.dataset.workspaceConversation || null);
     }
   }
 }

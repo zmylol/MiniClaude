@@ -4,8 +4,8 @@ const icon = name => `<svg class="icon" aria-hidden="true"><use href="#i-${name}
 
 // 项目切换和列表管理使用轻量浮层，保留工作区可见与原有键盘焦点。
 export class ProjectPicker {
-  constructor({ command, onChange, onList, toast }) {
-    Object.assign(this, { command, onChange, onList, toast });
+  constructor({ command, onChange, onList, onSelect, toast }) {
+    Object.assign(this, { command, onChange, onList, onSelect, toast });
     this.panel = document.querySelector('#project-popover');
     this.sidebar = document.querySelector('#project-list');
     this.projects = [];
@@ -138,7 +138,7 @@ export class ProjectPicker {
     if (!target || this.busy) return;
     const action = target.dataset.projectAction;
     if (action === 'menu') { this.menu(target, target.dataset.path); return; }
-    if (action === 'select' && target.dataset.path === this.currentPath) { this.close(); return; }
+    if (action === 'select' && target.dataset.path === this.currentPath) { this.close(false); this.onSelect?.(); return; }
     const version = this.version;
     this.busy = true;
     target.disabled = true;

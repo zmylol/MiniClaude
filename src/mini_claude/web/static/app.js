@@ -3,7 +3,7 @@ import { EventConnection } from './transport.js';
 import { escapeHtml, markdown, historyMessages, readAttachments, composeContent } from './content.js';
 import { WorkspaceViews } from './views.js';
 import { ProjectPicker } from './projects.js';
-import { WorkspaceSidebar } from './sidebar.js';
+import { WorkspaceSidebar, hasConversationDraft } from './sidebar.js';
 
 const $ = selector => document.querySelector(selector);
 const state = { conversations: [], runs: {}, activeId: null, events: {}, connected: false };
@@ -21,6 +21,8 @@ let currentPage = null;
 let navigation = [];
 let navigationIndex = -1;
 let switchingProject = false;
+let navigatingWorkspace = false;
+let workspaceCommandPending = false;
 let attachmentLoading = false;
 let reconciling = null;
 let preferences = {};
@@ -59,7 +61,7 @@ function persist() {
 // 仅保存本机对话内容与路由信息，不保存接口密钥或全局外部事件。
 function saveNow() {
   try {
-    const conversations = state.conversations.map(c => ({ ...c, attachments: [], failedDraft: c.failedDraft ? { text: c.failedDraft.text, files: [] } : undefined, messages: c.messages.filter(m => m.kind !== 'image') }));
+    const conversations = state.conversations.map(c => ({ ...c, attachments: [], missingAttachments: [...new Set([...(c.missingAttachments || []), ...(c.attachments || []).map(file => file.name), ...(c.failedDraft?.files || []).map(file => file.name)])], failedDraft: c.failedDraft ? { text: c.failedDraft.text, files: [] } : undefined, messages: c.messages.filter(m => m.kind !== 'image') }));
     localStorage.setItem(storageKey, JSON.stringify({ conversations, activeId: state.activeId, runs: state.runs, preferences }));
   } catch {
     if (!storageWarning) { storageWarning = true; toast('浏览器存储不可用或已满；本次对话仍可继续，但刷新后可能丢失。'); }
@@ -90,7 +92,8 @@ function selectConversation(id, record = true) {
 
 // 新建本地空会话，首次发送时再创建远端 session。
 function newConversation() {
-  const empty = state.conversations.find(c => !c.sessionId && !c.messages.length);
+  workspaceSidebar.setExpanded(info.project_path, true);
+  const empty = state.conversations.find(c => !c.sessionId && !c.messages.length && !hasConversationDraft(c));
   if (empty) { selectConversation(empty.id); return; }
   const conversation = createConversation(crypto.randomUUID());
   conversation.selectedModel = preferences.model || info.model || '';
@@ -281,7 +284,10 @@ function scheduleRender() {
 // 重连核对项目期间不允许业务命令落到另一个项目的 Core。
 function command(method, params) {
   if (!state.connected && !['workspace.list', 'workspace.sessions', 'workspace.pick', 'workspace.select', 'workspace.remove'].includes(method)) return Promise.reject(new Error('正在恢复项目连接，请稍后再试。'));
-  return connection.command(method, params);
+  if (!['workspace.pick', 'workspace.select', 'workspace.remove'].includes(method)) return connection.command(method, params);
+  if (workspaceCommandPending || switchingProject) return Promise.reject(new Error('正在切换工作区，请稍候。'));
+  workspaceCommandPending = true;
+  return connection.command(method, params).finally(() => { workspaceCommandPending = false; });
 }
 
 // 事件订阅和项目身份都确认后，才把界面标为可用。
@@ -349,23 +355,25 @@ const workspaceSidebar = new WorkspaceSidebar({
     catch { return []; }
   },
 });
-const projectPicker = new ProjectPicker({ command, onChange: changeProject, onList: result => workspaceSidebar.update(result), toast });
+const projectPicker = new ProjectPicker({ command, onChange: changeProject, onList: result => workspaceSidebar.update(result), onSelect: () => selectConversation(state.activeId), toast });
 
 // 跨项目导航先保存目标，再切换后端；重新连接后才打开该项目的会话。
-async function navigateWorkspace(path, sessionId) {
-  if (switchingProject) return;
-  if (path === info.project_path) {
-    if (sessionId) await openSession(sessionId);
-    else newConversation();
-    return;
-  }
+async function navigateWorkspace(path, sessionId, conversationId) {
+  if (switchingProject || navigatingWorkspace || projectPicker.busy) return;
+  navigatingWorkspace = true;
   try {
-    sessionStorage.setItem('miniclaude.workspace-navigation', JSON.stringify({ path, sessionId }));
+    if (path === info.project_path) {
+      if (conversationId) selectConversation(conversationId);
+      else if (sessionId) await openSession(sessionId);
+      else newConversation();
+      return;
+    }
+    sessionStorage.setItem('miniclaude.workspace-navigation', JSON.stringify({ path, sessionId, conversationId }));
     changeProject(await command('workspace.select', { path }));
   } catch (error) {
     sessionStorage.removeItem('miniclaude.workspace-navigation');
     toast(error.message);
-  }
+  } finally { navigatingWorkspace = false; }
 }
 
 // 只消费与当前实际目录一致的导航，避免其他窗口切换时误开同名对话。
@@ -374,8 +382,9 @@ async function resumeWorkspaceNavigation() {
   if (!pending) return;
   sessionStorage.removeItem('miniclaude.workspace-navigation');
   if (pending.path !== info.project_path) return;
-  workspaceSidebar.expanded[pending.path] = true;
-  if (pending.sessionId) await openSession(pending.sessionId);
+  workspaceSidebar.setExpanded(pending.path, true);
+  if (pending.conversationId) selectConversation(pending.conversationId);
+  else if (pending.sessionId) await openSession(pending.sessionId);
   else newConversation();
 }
 
@@ -403,6 +412,7 @@ async function sendMessage(event) {
     for (const file of files.filter(file => file.kind === 'image')) conversation.messages.push({ kind: 'image', mediaType: file.mediaType, data: file.data, name: file.name });
     conversation.draft = '';
     conversation.attachments = [];
+    conversation.missingAttachments = [];
     conversation.historyLoaded = true;
     if (active()?.id === conversation.id) $('#prompt').value = '';
     submitted = true;
@@ -554,7 +564,20 @@ async function reconcileSessions() {
   if (reconciling) return reconciling;
   reconciling = (async () => {
     const versions = new Map(state.conversations.map(c => [c.sessionId, c.eventVersion || 0]));
+    const knownIds = new Set(state.conversations.filter(c => c.sessionId).map(c => c.id));
     const result = await command('session.list');
+    const remoteIds = new Set((result.sessions || []).map(item => item.session_id));
+    state.conversations = state.conversations.flatMap(c => {
+      if (!c.sessionId || remoteIds.has(c.sessionId) || !knownIds.has(c.id)
+        || (c.eventVersion || 0) !== versions.get(c.sessionId) || ['running', 'waiting', 'sending'].includes(c.status)) return [c];
+      if (!hasConversationDraft(c) && !c.failedDraft) return [];
+      return [{ ...createConversation(c.id), title: c.title, draft: c.draft,
+        attachments: c.attachments, missingAttachments: c.missingAttachments, failedDraft: c.failedDraft,
+        selectedModel: c.selectedModel, permissionMode: c.permissionMode, pinned: c.pinned,
+        messages: [{ kind: 'notice', text: '原会话已不存在，未发送的内容已保留为草稿。' }],
+      }];
+    });
+    if (!active()) { state.activeId = null; newConversation(); }
     for (const remote of result.sessions || []) {
       let conversation = state.conversations.find(c => c.sessionId === remote.session_id);
       if (!conversation) {
@@ -614,15 +637,23 @@ async function openSession(sessionId, draft) {
 // 原生文件选择和拖放共用内容读取，发送前允许逐个移除。
 function renderAttachments() {
   const files = active()?.attachments || [];
-  const html = files.map(file => `<div class="attachment-chip">${file.kind === 'image' ? `<img src="data:${file.mediaType};base64,${escapeHtml(file.data)}" alt="">` : icon('paperclip')}<span>${escapeHtml(file.name)}<small>${Math.max(1, Math.ceil(file.size / 1024))} KB</small></span><button class="icon-button" data-remove-file="${escapeHtml(file.id)}" type="button" aria-label="移除 ${escapeHtml(file.name)}">${icon('x')}</button></div>`).join('');
-  $('#attachment-list').hidden = !files.length;
+  const missing = active()?.missingAttachments || [];
+  const html = files.map(file => `<div class="attachment-chip">${file.kind === 'image' ? `<img src="data:${file.mediaType};base64,${escapeHtml(file.data)}" alt="">` : icon('paperclip')}<span>${escapeHtml(file.name)}<small>${Math.max(1, Math.ceil(file.size / 1024))} KB</small></span><button class="icon-button" data-remove-file="${escapeHtml(file.id)}" type="button" aria-label="移除 ${escapeHtml(file.name)}">${icon('x')}</button></div>`).join('')
+    + (missing.length ? `<div class="attachment-chip" role="status"><span>请重新添加附件：${missing.map(escapeHtml).join('、')}<small>附件内容仅保留在当前页面中</small></span><button class="icon-button" data-action="dismiss-attachment-notice" type="button" aria-label="忽略未恢复的附件">${icon('x')}</button></div>` : '');
+  $('#attachment-list').hidden = !files.length && !missing.length;
   if ($('#attachment-list').innerHTML !== html) $('#attachment-list').innerHTML = html;
 }
 async function addFiles(files) {
   if (!hasProject() || !files.length || attachmentLoading) return;
   const conversation = active();
   attachmentLoading = true; render();
-  try { conversation.attachments = await readAttachments(files, conversation.attachments || []); }
+  try {
+    const attachments = await readAttachments(files, conversation.attachments || []);
+    const current = state.conversations.find(c => c.id === conversation.id);
+    if (!current) { toast('对话已删除，附件未添加。'); return; }
+    current.attachments = attachments;
+    current.missingAttachments = (current.missingAttachments || []).filter(name => !attachments.some(file => file.name === name));
+  }
   catch (error) { toast(error.message); }
   finally { attachmentLoading = false; $('#file-picker').value = ''; render(); }
 }
@@ -725,6 +756,7 @@ function handleAction(action, target) {
   else if (action === 'project') projectPicker.open(target);
   else if (action === 'open-project') views.perform('pick-project', target).catch(error => toast(error.message));
   else if (action === 'new-chat') newConversation();
+  else if (action === 'dismiss-attachment-notice') { active().missingAttachments = []; render(); persist(); }
   else if (action === 'sync-history') syncHistory();
   else if (action === 'copy-code') copyText(target.closest('.code-block').querySelector('code').textContent);
   else if (action === 'recover-draft' && active().failedDraft) {
@@ -734,7 +766,7 @@ function handleAction(action, target) {
 
 // 主输入框原生支持文件选择、图片粘贴、拖放和输入法组合输入。
 $('#composer-form').addEventListener('submit', sendMessage);
-$('#prompt').addEventListener('input', () => { active().draft = $('#prompt').value; renderComposer(); persist(); });
+$('#prompt').addEventListener('input', () => { active().draft = $('#prompt').value; renderComposer(); if (!active().sessionId) renderSidebar(); persist(); });
 $('#prompt').addEventListener('keydown', event => {
   // WebKit 会先结束组字再派发确认键，此时只能通过 229 识别输入法回车。
   if (event.isComposing || event.keyCode === 229) return;

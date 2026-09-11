@@ -180,18 +180,19 @@ async def websocket(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=30, max_msg_size=MAX_COMMAND_BYTES)
     await ws.prepare(request)
     request.app[WEBSOCKETS].add(ws)
-    request.app[WEBSOCKET_PROJECTS][ws] = request.app[WORKSPACE].project_path
     request.app[PENDING_RUNS][ws] = set()
     writer: asyncio.StreamWriter | None = None
     tasks: list[asyncio.Task[None]] = []
-    config = request.app[WORKSPACE].config
     try:
         try:
+            project, config = await request.app[WORKSPACE].prepare_connection()
+            request.app[WEBSOCKET_PROJECTS][ws] = project
             reader, core_writer = await asyncio.wait_for(
                 asyncio.open_connection(config.host, config.port, limit=MAX_EVENT_BYTES), timeout=3,
             )
             writer = core_writer
-        except (OSError, TimeoutError):
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            logger.warning("Workspace core unavailable: %s", exc)
             await ws.close(code=1013, message=b"mini-core unavailable; run mini-core")
             return ws
         tasks = [

@@ -176,11 +176,18 @@ class Workspace:
 
     # 为已选择的项目复用或启动独立 core，使后台任务不因切换项目被结束。
     async def _config_for(self, path: Path) -> MiniConfig:
-        if path not in self._configs:
-            if self._open_project is None:
-                raise RuntimeError("项目切换需要在 MiniClaude 桌面应用中打开。")
+        if self._open_project is not None:
             self._configs[path] = await asyncio.to_thread(self._open_project, path)
+        elif path not in self._configs:
+            raise RuntimeError("项目切换需要在 MiniClaude 桌面应用中打开。")
         return self._configs[path]
+
+    # 重连时确认当前 Core 仍可用，并在同一个锁内返回配对的执行目录与连接配置。
+    async def prepare_connection(self) -> tuple[Path, MiniConfig]:
+        async with self._lock:
+            if self.project_selected:
+                self.config = await self._config_for(self.project_path)
+            return self.project_path, self.config
 
     # 通过短连接发送桌面服务命令，响应 ID 匹配后关闭而不占用界面订阅。
     async def request_core(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -206,7 +213,10 @@ class Workspace:
                 raise ValueError("请先在桌面中打开这个项目。")
             config = self._configs.get(path)
         if config is not None:
-            return await self._request_core(config, "session.list", {})
+            try:
+                return await self._request_core(config, "session.list", {})
+            except ConnectionRefusedError:
+                pass
         sessions = await asyncio.to_thread(self._saved_sessions, path)
         return {"project_path": str(path), "sessions": sessions}
 
