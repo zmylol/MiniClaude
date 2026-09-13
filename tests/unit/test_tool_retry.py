@@ -17,6 +17,7 @@ class _FailNTimes(BaseTool):
     name = "fail_n"
     description = "Fails n times then succeeds"
     input_schema: dict[str, object] = {"type": "object", "properties": {}, "required": []}
+    retry_on_error = True
 
     def __init__(self, n: int, *, error_type: str = "runtime_error") -> None:
         self._remaining = n
@@ -34,6 +35,7 @@ class _RateLimitedNTimes(BaseTool):
     name = "rate_n"
     description = "Rate-limits n times then succeeds"
     input_schema: dict[str, object] = {"type": "object", "properties": {}, "required": []}
+    retry_on_error = True
 
     def __init__(self, n: int) -> None:
         self._remaining = n
@@ -49,6 +51,7 @@ class _AlwaysFails(BaseTool):
     name = "always_fail"
     description = "Always fails"
     input_schema: dict[str, object] = {"type": "object", "properties": {}, "required": []}
+    retry_on_error = True
 
     def __init__(self, error_type: str = "runtime_error") -> None:
         self._error_type = error_type
@@ -200,3 +203,51 @@ async def test_mcp_tool_opts_out_of_retries() -> None:
 
     tool = McpTool(AsyncMock(spec=McpClient), "remote", McpToolDef(name="submit", description=""))
     assert not tool.retry_on_error
+
+
+# 功能：验证未声明可重复执行的工具在失败后默认只调用一次
+# 设计：使用继承默认策略的真实工具桩累计调用次数，避免只检查策略字段遗漏调用器行为
+async def test_default_tool_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _SideEffectTool(BaseTool):
+        name = "side_effect"
+        description = "Records calls"
+        input_schema: dict[str, object] = {}
+        calls = 0
+
+        # 记录每次调用并返回执行结果不确定的错误
+        async def invoke(self, params: dict[str, object]) -> ToolResult:
+            self.calls += 1
+            return ToolResult(content="partially applied", is_error=True)
+
+    tool = _SideEffectTool()
+    result, events = await _run(tool, monkeypatch=monkeypatch)
+    assert result.is_error
+    assert result.content == "partially applied"
+    assert tool.calls == 1
+    assert len([event for event in events if event.type == "tool.call_failed"]) == 1
+
+
+@pytest.mark.parametrize("error", [FileNotFoundError("missing"), ValueError("invalid")])
+# 功能：验证显式可重试的工具也不会重试文件缺失和无效参数这类确定性异常
+# 设计：直接经过调用器累计真实调用次数，同时保留既有 runtime_error 分类契约
+async def test_safe_tool_deterministic_errors_are_not_retried(
+    error: Exception, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _ReadTool(BaseTool):
+        name = "safe_read"
+        description = "Reads state"
+        input_schema: dict[str, object] = {}
+        retry_on_error = True
+        calls = 0
+
+        # 抛出不会因重试而改变的输入或文件错误
+        async def invoke(self, params: dict[str, object]) -> ToolResult:
+            self.calls += 1
+            raise error
+
+    tool = _ReadTool()
+    result, _events = await _run(tool, monkeypatch=monkeypatch)
+    assert result.is_error
+    assert result.error_type == "runtime_error"
+    assert result.content == str(error)
+    assert tool.calls == 1
