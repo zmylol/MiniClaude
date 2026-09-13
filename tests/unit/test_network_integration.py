@@ -10,12 +10,16 @@ from mini_claude.core.agents.loader import AgentProfileLoader
 from mini_claude.core.config import MiniConfig, _apply_env, _apply_toml
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.llm.types import LlmResponse
+from mini_claude.core.llm.types import ToolCallBlock
 from mini_claude.core.permissions.manager import PermissionManager
 from mini_claude.core.permissions.policy import PermissionDecision, evaluate
 from mini_claude.core.runner import AgentRunner
 from mini_claude.core.subagent.registry import BackgroundTaskRegistry
 from mini_claude.core.subagent.tool import SpawnAgentTool
 from mini_claude.core.task.manager import TaskManager
+from mini_claude.core.tools.base import BaseTool, ToolResult
+from mini_claude.core.tools.invocation import invoke_tool
+from mini_claude.core.tools.registry import ToolRegistry
 
 
 # 功能：默认注册搜索和抓取，显式白名单仍限制联网工具
@@ -183,3 +187,46 @@ async def test_children_receive_network_tools_and_own_browsers(
     assert len({id(item) for item in instances}) == 3
     for browser in instances:
         browser.close.assert_awaited_once()
+
+
+# 功能：子代理完成浏览器写操作后失败，不会自动重跑整个子任务
+# 设计：让子代理点击后耗尽步数，通过真实调用器验证外部操作只执行一次
+async def test_failed_child_does_not_repeat_browser_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    actions: list[str] = []
+
+    class Click(BaseTool):
+        name = "browser_click"
+        description = "Test click"
+        input_schema = {"type": "object", "properties": {}}
+
+        # 记录模拟的外部写入行为
+        async def invoke(self, params: dict[str, object]) -> ToolResult:
+            actions.append("submitted")
+            return ToolResult("submitted")
+
+    # 为每个子任务提供独立可清理浏览器
+    def browser_factory(**kwargs: object) -> AsyncMock:
+        browser = AsyncMock()
+        browser.get_tools = lambda: [Click()]
+        return browser
+
+    monkeypatch.setattr("mini_claude.core.subagent.tool.BrowserSession", browser_factory)
+    monkeypatch.setattr("mini_claude.core.tools.invocation._RETRY_BASE_S", 0)
+    provider = AsyncMock()
+    provider.chat.return_value = LlmResponse(
+        stop_reason="tool_use",
+        tool_calls=[ToolCallBlock(id="click", name="browser_click", input={})],
+    )
+    registry = ToolRegistry()
+    registry.register(SpawnAgentTool(
+        provider, EventBus(), "parent", None, 1, BackgroundTaskRegistry(), tmp_path, "session",
+    ))
+    result = await invoke_tool(
+        registry,
+        ToolCallBlock(id="child", name="spawn_agent", input={"description": "submit", "prompt": "submit"}),
+        EventBus(), "parent",
+    )
+    assert result.is_error
+    assert actions == ["submitted"]
