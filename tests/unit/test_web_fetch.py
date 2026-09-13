@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 import socket
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 from pydantic import ValidationError
+from yarl import URL
 
 from mini_claude.core.tools.builtin.web_fetch import WebFetchTool, _proxy_for_url
 
@@ -30,27 +33,36 @@ def public_dns() -> Iterator[MagicMock]:
         yield resolver
 
 
-# 通过真实 HTTPX 模拟传输保留请求与流式读取行为，完全禁止外部网络
+# 模拟 aiohttp 会话并保留实际请求参数与分块数据，完全禁止外部网络
 @pytest.fixture
 def transport(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[httpx.Request]]:
-    original_client = httpx.AsyncClient
-
     # 为当前测试安装响应处理器并收集原始请求
     def install(handler: Callable[[httpx.Request], httpx.Response]) -> list[httpx.Request]:
         requests: list[httpx.Request] = []
 
-        # 记录实际传入传输层的 URL 与扩展后返回模拟响应
-        def record(request: httpx.Request) -> httpx.Response:
-            requests.append(request)
-            return handler(request)
+        class Session:
+            # 返回模拟会话上下文
+            async def __aenter__(self) -> Session:
+                return self
 
-        # 用无网络传输替换客户端，其他公开参数保留原行为
-        def client(**kwargs: object) -> httpx.AsyncClient:
-            kwargs.pop("proxy", None)
-            kwargs.pop("trust_env", None)
-            return original_client(transport=httpx.MockTransport(record), trust_env=False, **kwargs)
+            # 结束模拟会话上下文
+            async def __aexit__(self, *args: object) -> None:
+                pass
 
-        monkeypatch.setattr("mini_claude.core.tools.builtin.web_fetch.httpx.AsyncClient", client)
+            # 记录请求参数并将模拟响应转换成 aiohttp 流式接口
+            @asynccontextmanager
+            async def get(self, url: URL, *, headers: dict[str, str],
+                          server_hostname: str, **kwargs: object) -> AsyncIterator[object]:
+                request = httpx.Request("GET", str(url), headers=headers,
+                                        extensions={"sni_hostname": server_hostname, **kwargs})
+                requests.append(request)
+                response = handler(request)
+                yield SimpleNamespace(status=response.status_code, headers=response.headers,
+                                      charset="utf-8", content=SimpleNamespace(
+                                          iter_chunked=lambda _: response.aiter_bytes()))
+
+        monkeypatch.setattr("mini_claude.core.tools.builtin.web_fetch.aiohttp.ClientSession",
+                            lambda **kwargs: Session())
         return requests
 
     return install
@@ -174,8 +186,18 @@ async def test_fetch_reports_unreadable_pages(status: int, kind: str, body: byte
 # 设计：清除继承环境后设置本地代理，避免固定公网 IP 使域名免代理规则失效
 def test_fetch_proxy_env_uses_original_host(monkeypatch: pytest.MonkeyPatch) -> None:
     with patch.dict("os.environ", {"HTTPS_PROXY": "http://127.0.0.1:7890", "NO_PROXY": "example.com"}, clear=True):
-        assert _proxy_for_url(httpx.URL("https://example.com/path")) is None
-        assert _proxy_for_url(httpx.URL("https://other.org")) == "http://127.0.0.1:7890"
+        assert _proxy_for_url(URL("https://example.com/path")) is None
+        assert _proxy_for_url(URL("https://other.org")) == "http://127.0.0.1:7890"
+
+
+# 功能：验证不支持的 SOCKS 代理给出明确错误且不会悄悄绕过代理联网
+# 设计：仅配置 ALL_PROXY 并断言传输层未收到请求，防止环境配置被忽略
+async def test_fetch_rejects_socks_proxy(transport: Callable[..., object]) -> None:
+    requests = transport(lambda _: httpx.Response(200, text="test"))
+    with patch.dict("os.environ", {"ALL_PROXY": "socks5://127.0.0.1:7890"}, clear=True):
+        result = await WebFetchTool().invoke({"url": "https://example.com"})
+    assert result.is_error and "SOCKS" in result.content
+    assert not requests
 
 
 # 功能：验证抓取参数边界在发出请求前被拒绝
