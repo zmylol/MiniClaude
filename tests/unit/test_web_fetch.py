@@ -101,6 +101,18 @@ async def test_fetch_extracts_article_and_pins_connection(transport: Callable[..
     assert request.extensions["sni_hostname"] == "example.com"
 
 
+# 功能：验证相对链接以实际页面目录解析而不是错误地拼到网站根目录
+# 设计：文章位于二级路径并包含同目录链接，使用真实提取器暴露上游默认链接解析缺陷
+async def test_fetch_preserves_relative_links(transport: Callable[..., object]) -> None:
+    body = _ARTICLE.replace("https://example.org/reference", "reference.html#details")
+    transport(lambda _: httpx.Response(200, text=body, headers={"content-type": "text/html"}))
+    result = await WebFetchTool().invoke({"url": "https://example.com/guides/article"})
+    assert not result.is_error
+    assert (
+        "https://example.com/guides/reference.html#details" in json.loads(result.content)["content"]
+    )
+
+
 # 功能：验证纯文本分页可连续读取，末页正确标记结束
 # 设计：使用唯一字符序列检查页边界和游标，避免只判断字符串长度
 async def test_fetch_paginates_plaintext(transport: Callable[..., object]) -> None:
@@ -118,6 +130,77 @@ async def test_fetch_paginates_plaintext(transport: Callable[..., object]) -> No
     assert last["content"] == "efghij" and last["next_start"] is None and not last["truncated"]
 
 
+# 功能：验证 JSON 转义后的整体结果仍保留完整来源、提示和下一页游标
+# 设计：大量引号和长 URL 会放大序列化长度，用真实分页结果检查不会被历史压缩器截断
+async def test_fetch_bounds_serialized_result(transport: Callable[..., object]) -> None:
+    transport(
+        lambda _: httpx.Response(200, text='"' * 7000, headers={"content-type": "text/plain"})
+    )
+    result = await WebFetchTool().invoke({"url": "https://example.com/" + "x" * 1800})
+    assert not result.is_error
+    assert len(result.content) <= 7800
+    page = json.loads(result.content)
+    assert page["next_start"] == len(page["content"])
+    assert page["truncated"] and page["notice"] and page["fetched_at"]
+
+
+# 功能：验证 VPN 假 IP 只对域名触发受信任 HTTPS DNS 查询，随后仍连接真实公共 IP
+# 设计：模拟基准网段解析和 DNS JSON 响应，观察实际 DoH 目标、TLS 主机名与后续固定 IP
+async def test_fetch_resolves_vpn_fake_ip(
+    public_dns: MagicMock, transport: Callable[..., object]
+) -> None:
+    public_dns.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.4", 443))]
+
+    # 区分固定的 DoH 查询与目标页面请求
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "1.1.1.1":
+            assert request.url.params["name"] == "example.com"
+            assert request.extensions["allow_redirects"] is False
+            return httpx.Response(
+                200, json={"Status": 0, "Answer": [{"type": 1, "data": _PUBLIC_IP}]}
+            )
+        return httpx.Response(200, text="public text", headers={"content-type": "text/plain"})
+
+    requests = transport(respond)
+    result = await WebFetchTool().invoke({"url": "https://example.com"})
+    assert not result.is_error, result.content
+    assert [r.url.host for r in requests] == ["1.1.1.1", _PUBLIC_IP]
+    assert requests[0].extensions["sni_hostname"] == "1.1.1.1"
+    assert requests[1].extensions["sni_hostname"] == "example.com"
+
+
+# 功能：验证 DoH 回答也必须全部为公网地址
+# 设计：通过 VPN 假 IP 进入备用解析，再返回私有地址，断言目标页面从未被连接
+async def test_fetch_rejects_private_doh_answer(
+    public_dns: MagicMock, transport: Callable[..., object]
+) -> None:
+    public_dns.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("198.18.0.4", 443))]
+    requests = transport(
+        lambda _: httpx.Response(
+            200,
+            json={
+                "Status": 0,
+                "Answer": [{"type": 1, "data": "127.0.0.1"}],
+            },
+        )
+    )
+    result = await WebFetchTool().invoke({"url": "https://example.com"})
+    assert result.is_error and result.error_type == "permission_denied"
+    assert len(requests) == 1 and requests[0].url.host == "1.1.1.1"
+
+
+# 功能：验证用户直接指定基准网段 IP 时不会借用备用 DNS 绕过拒绝规则
+# 设计：输入字面量地址，断言没有 DNS 请求或网页请求
+async def test_fetch_rejects_literal_fake_ip(
+    public_dns: MagicMock, transport: Callable[..., object]
+) -> None:
+    requests = transport(lambda _: httpx.Response(200, text="private"))
+    result = await WebFetchTool().invoke({"url": "http://198.18.0.4/"})
+    assert result.is_error and result.error_type == "permission_denied"
+    assert not requests
+    public_dns.assert_not_called()
+
+
 # 功能：验证外部页面不能重定向到内网、凭据地址或非 HTTP 资源
 # 设计：枚举常见 SSRF 目标并断言仅最初的公共请求到达传输层
 @pytest.mark.parametrize(
@@ -128,6 +211,9 @@ async def test_fetch_paginates_plaintext(transport: Callable[..., object]) -> No
         "http://10.0.0.1/",
         "http://[::1]/",
         "http://[::ffff:127.0.0.1]/",
+        "http://[fec0::1]/",
+        "http://[::127.0.0.1]/",
+        "http://[::ffff:0:127.0.0.1]/",
         "file:///etc/passwd",
         "https://user:password@example.com/",
         "http://224.0.0.1/",

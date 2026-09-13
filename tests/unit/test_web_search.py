@@ -33,7 +33,9 @@ async def test_search_returns_sources_off_event_loop() -> None:
     assert "untrusted" in payload["notice"].lower()
     assert threads and threads[0] != main_thread
     client.assert_called_once_with(timeout=15)
-    client.return_value.text.assert_called_once_with("Python docs", max_results=5, backend="auto")
+    client.return_value.text.assert_called_once_with(
+        "Python docs", max_results=5, backend="yahoo,duckduckgo,brave"
+    )
 
 
 # 功能：验证搜索结果数量、标题与摘要受到上限约束
