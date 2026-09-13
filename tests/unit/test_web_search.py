@@ -64,10 +64,15 @@ async def test_search_empty_is_distinct_from_provider_error() -> None:
 
 # 功能：验证无效搜索参数在调用任何提供者前被拒绝
 # 设计：覆盖空白、超长查询与数量边界，直接检查上游完全未调用
-@pytest.mark.parametrize("params", [
-    {"query": " "}, {"query": "q" * 2001}, {"query": "q", "max_results": 0},
-    {"query": "q", "max_results": 11},
-])
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"query": " "},
+        {"query": "q" * 2001},
+        {"query": "q", "max_results": 0},
+        {"query": "q", "max_results": 11},
+    ],
+)
 async def test_search_rejects_invalid_params(params: dict[str, object]) -> None:
     with patch("mini_claude.core.tools.builtin.web_search.DDGS", new=MagicMock()) as client:
         with pytest.raises(ValidationError):

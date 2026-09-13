@@ -16,20 +16,23 @@ from mini_claude.core.tools.builtin.web_fetch import WebFetchTool, _proxy_for_ur
 
 _PUBLIC_IP = "93.184.216.34"
 _ARTICLE = (
-    '<html><head><title>Research notes</title></head><body><nav>Navigation</nav><article>'
-    '<h1>Research notes</h1><p>These research notes explain how safe network access works '
-    'and provide sufficient context to preserve the main article during extraction.</p>'
+    "<html><head><title>Research notes</title></head><body><nav>Navigation</nav><article>"
+    "<h1>Research notes</h1><p>These research notes explain how safe network access works "
+    "and provide sufficient context to preserve the main article during extraction.</p>"
     '<p>Read the <a href="https://example.org/reference">reference document</a> for '
-    'additional details and examples of network behavior.</p></article></body></html>'
+    "additional details and examples of network behavior.</p></article></body></html>"
 )
 
 
 # 提供公共 DNS 解析结果，阻止测试发起真实域名查询
 @pytest.fixture(autouse=True)
 def public_dns() -> Iterator[MagicMock]:
-    with patch("socket.getaddrinfo", return_value=[
-        (socket.AF_INET, socket.SOCK_STREAM, 6, "", (_PUBLIC_IP, 443)),
-    ]) as resolver:
+    with patch(
+        "socket.getaddrinfo",
+        return_value=[
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (_PUBLIC_IP, 443)),
+        ],
+    ) as resolver:
         yield resolver
 
 
@@ -51,18 +54,28 @@ def transport(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[httpx.Reque
 
             # 记录请求参数并将模拟响应转换成 aiohttp 流式接口
             @asynccontextmanager
-            async def get(self, url: URL, *, headers: dict[str, str],
-                          server_hostname: str, **kwargs: object) -> AsyncIterator[object]:
-                request = httpx.Request("GET", str(url), headers=headers,
-                                        extensions={"sni_hostname": server_hostname, **kwargs})
+            async def get(
+                self, url: URL, *, headers: dict[str, str], server_hostname: str, **kwargs: object
+            ) -> AsyncIterator[object]:
+                request = httpx.Request(
+                    "GET",
+                    str(url),
+                    headers=headers,
+                    extensions={"sni_hostname": server_hostname, **kwargs},
+                )
                 requests.append(request)
                 response = handler(request)
-                yield SimpleNamespace(status=response.status_code, headers=response.headers,
-                                      charset="utf-8", content=SimpleNamespace(
-                                          iter_chunked=lambda _: response.aiter_bytes()))
+                yield SimpleNamespace(
+                    status=response.status_code,
+                    headers=response.headers,
+                    charset="utf-8",
+                    content=SimpleNamespace(iter_chunked=lambda _: response.aiter_bytes()),
+                )
 
-        monkeypatch.setattr("mini_claude.core.tools.builtin.web_fetch.aiohttp.ClientSession",
-                            lambda **kwargs: Session())
+        monkeypatch.setattr(
+            "mini_claude.core.tools.builtin.web_fetch.aiohttp.ClientSession",
+            lambda **kwargs: Session(),
+        )
         return requests
 
     return install
@@ -71,7 +84,9 @@ def transport(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[httpx.Reque
 # 功能：验证真实正文抽取保留标题与链接，连接固定到已校验 IP 并保留 TLS 主机名
 # 设计：拦截传输层而不替换提取器，同时验证抽取效果及 DNS 重绑定防护的实际请求
 async def test_fetch_extracts_article_and_pins_connection(transport: Callable[..., object]) -> None:
-    requests = transport(lambda _: httpx.Response(200, text=_ARTICLE, headers={"content-type": "text/html"}))
+    requests = transport(
+        lambda _: httpx.Response(200, text=_ARTICLE, headers={"content-type": "text/html"})
+    )
     result = await WebFetchTool().invoke({"url": "https://example.com/article"})
     assert not result.is_error, result.content
     payload = json.loads(result.content)
@@ -91,20 +106,36 @@ async def test_fetch_extracts_article_and_pins_connection(transport: Callable[..
 async def test_fetch_paginates_plaintext(transport: Callable[..., object]) -> None:
     content = "abcdefghij"
     transport(lambda _: httpx.Response(200, text=content, headers={"content-type": "text/plain"}))
-    first = json.loads((await WebFetchTool().invoke({"url": "https://example.com", "max_chars": 4})).content)
-    last = json.loads((await WebFetchTool().invoke({"url": "https://example.com", "start": 4, "max_chars": 10})).content)
+    first = json.loads(
+        (await WebFetchTool().invoke({"url": "https://example.com", "max_chars": 4})).content
+    )
+    last = json.loads(
+        (
+            await WebFetchTool().invoke({"url": "https://example.com", "start": 4, "max_chars": 10})
+        ).content
+    )
     assert first["content"] == "abcd" and first["next_start"] == 4 and first["truncated"]
     assert last["content"] == "efghij" and last["next_start"] is None and not last["truncated"]
 
 
 # 功能：验证外部页面不能重定向到内网、凭据地址或非 HTTP 资源
 # 设计：枚举常见 SSRF 目标并断言仅最初的公共请求到达传输层
-@pytest.mark.parametrize("target", [
-    "http://127.0.0.1/secret", "http://169.254.169.254/", "http://10.0.0.1/",
-    "http://[::1]/", "http://[::ffff:127.0.0.1]/", "file:///etc/passwd",
-    "https://user:password@example.com/", "http://224.0.0.1/",
-])
-async def test_fetch_rejects_unsafe_redirects(target: str, transport: Callable[..., object]) -> None:
+@pytest.mark.parametrize(
+    "target",
+    [
+        "http://127.0.0.1/secret",
+        "http://169.254.169.254/",
+        "http://10.0.0.1/",
+        "http://[::1]/",
+        "http://[::ffff:127.0.0.1]/",
+        "file:///etc/passwd",
+        "https://user:password@example.com/",
+        "http://224.0.0.1/",
+    ],
+)
+async def test_fetch_rejects_unsafe_redirects(
+    target: str, transport: Callable[..., object]
+) -> None:
     requests = transport(lambda _: httpx.Response(302, headers={"location": target}))
     result = await WebFetchTool().invoke({"url": "https://example.com"})
     assert result.is_error and result.error_type == "permission_denied"
@@ -114,8 +145,12 @@ async def test_fetch_rejects_unsafe_redirects(target: str, transport: Callable[.
 
 # 功能：验证域名解析中混入私有地址时在发出请求前拒绝
 # 设计：模拟同一域名同时解析到公共和私有 IP，防止挑选公共结果掩盖危险 DNS
-async def test_fetch_rejects_private_dns(public_dns: MagicMock, transport: Callable[..., object]) -> None:
-    public_dns.return_value.append((socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 443)))
+async def test_fetch_rejects_private_dns(
+    public_dns: MagicMock, transport: Callable[..., object]
+) -> None:
+    public_dns.return_value.append(
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("192.168.1.1", 443))
+    )
     requests = transport(lambda _: httpx.Response(200, text="secret"))
     result = await WebFetchTool().invoke({"url": "https://example.com"})
     assert result.is_error and result.error_type == "permission_denied"
@@ -124,7 +159,9 @@ async def test_fetch_rejects_private_dns(public_dns: MagicMock, transport: Calla
 
 # 功能：验证相对重定向以原始域名解析，每一步都重新校验且结果记录最终网址
 # 设计：响应一次相对跳转并观察两次 DNS 解析，避免固定 IP 污染来源链接
-async def test_fetch_relative_redirect(public_dns: MagicMock, transport: Callable[..., object]) -> None:
+async def test_fetch_relative_redirect(
+    public_dns: MagicMock, transport: Callable[..., object]
+) -> None:
     # 根据请求路径返回跳转或正文
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/first":
@@ -169,14 +206,18 @@ async def test_fetch_bounds_download(declared: bool, transport: Callable[..., ob
 
 # 功能：验证非文本类型、HTTP 错误与无正文页面提供可操作的失败信息
 # 设计：使用最小响应分别覆盖下载不支持、需要登录和 JavaScript 空壳
-@pytest.mark.parametrize(("status", "kind", "body", "hint"), [
-    (200, "application/pdf", b"%PDF", "content type"),
-    (401, "text/html", b"login", "browser"),
-    (200, "text/html", b'<html><script src="app.js"></script></html>', "browser"),
-    (200, "text/plain", b"", "empty"),
-])
-async def test_fetch_reports_unreadable_pages(status: int, kind: str, body: bytes, hint: str,
-                                           transport: Callable[..., object]) -> None:
+@pytest.mark.parametrize(
+    ("status", "kind", "body", "hint"),
+    [
+        (200, "application/pdf", b"%PDF", "content type"),
+        (401, "text/html", b"login", "browser"),
+        (200, "text/html", b'<html><script src="app.js"></script></html>', "browser"),
+        (200, "text/plain", b"", "empty"),
+    ],
+)
+async def test_fetch_reports_unreadable_pages(
+    status: int, kind: str, body: bytes, hint: str, transport: Callable[..., object]
+) -> None:
     transport(lambda _: httpx.Response(status, content=body, headers={"content-type": kind}))
     result = await WebFetchTool().invoke({"url": "https://example.com"})
     assert result.is_error and hint in result.content.lower()
@@ -185,7 +226,11 @@ async def test_fetch_reports_unreadable_pages(status: int, kind: str, body: byte
 # 功能：验证标准代理环境变量按原始域名选择且遵守 NO_PROXY
 # 设计：清除继承环境后设置本地代理，避免固定公网 IP 使域名免代理规则失效
 def test_fetch_proxy_env_uses_original_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    with patch.dict("os.environ", {"HTTPS_PROXY": "http://127.0.0.1:7890", "NO_PROXY": "example.com"}, clear=True):
+    with patch.dict(
+        "os.environ",
+        {"HTTPS_PROXY": "http://127.0.0.1:7890", "NO_PROXY": "example.com"},
+        clear=True,
+    ):
         assert _proxy_for_url(URL("https://example.com/path")) is None
         assert _proxy_for_url(URL("https://other.org")) == "http://127.0.0.1:7890"
 
@@ -202,10 +247,14 @@ async def test_fetch_rejects_socks_proxy(transport: Callable[..., object]) -> No
 
 # 功能：验证抓取参数边界在发出请求前被拒绝
 # 设计：覆盖负游标、空网址和过长分页请求，复用 Pydantic 标准错误行为
-@pytest.mark.parametrize("params", [
-    {"url": ""}, {"url": "https://example.com", "start": -1},
-    {"url": "https://example.com", "max_chars": 20001},
-])
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"url": ""},
+        {"url": "https://example.com", "start": -1},
+        {"url": "https://example.com", "max_chars": 20001},
+    ],
+)
 async def test_fetch_rejects_invalid_params(params: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         await WebFetchTool().invoke(params)
