@@ -8,6 +8,13 @@ from mini_claude.core.tools.builtin.bash import BashTool
 from mini_claude.core.tools.builtin.list_dir import ListDirTool
 from mini_claude.core.tools.builtin.write_file import WriteFileTool
 
+
+@pytest.fixture(autouse=True)
+# 为真实文件和 shell 操作隔离临时工作区，文件工具只接收相对路径
+def _workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+
 # ── bash ──────────────────────────────────────────────────────────────────────
 
 # 功能：验证成功命令的 stdout 出现在 ToolResult.content 中，is_error 为 False
@@ -54,7 +61,7 @@ async def test_bash_stderr_merged() -> None:
 async def test_write_file_creates_and_returns_size(tmp_path: Path) -> None:
     target = tmp_path / "out.txt"
     result = await WriteFileTool().invoke(
-        {"path": str(target), "content": "hello world"}
+        {"path": target.name, "content": "hello world"}
     )
     assert not result.is_error
     assert "11" in result.content  # "hello world" = 11 bytes
@@ -66,7 +73,7 @@ async def test_write_file_creates_and_returns_size(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_write_file_creates_parent_dirs(tmp_path: Path) -> None:
     target = tmp_path / "a" / "b" / "file.txt"
-    result = await WriteFileTool().invoke({"path": str(target), "content": "x"})
+    result = await WriteFileTool().invoke({"path": "a/b/file.txt", "content": "x"})
     assert not result.is_error
     assert target.exists()
 
@@ -87,7 +94,7 @@ async def test_write_file_rejects_traversal() -> None:
 async def test_list_dir_shows_files(tmp_path: Path) -> None:
     (tmp_path / "foo.py").write_text("x")
     (tmp_path / "bar.md").write_text("y")
-    result = await ListDirTool().invoke({"path": str(tmp_path)})
+    result = await ListDirTool().invoke({"path": "."})
     assert not result.is_error
     assert "foo.py" in result.content
     assert "bar.md" in result.content
@@ -103,7 +110,7 @@ async def test_list_dir_respects_max_depth(tmp_path: Path) -> None:
     grandchild.mkdir()
     (grandchild / "deep.txt").write_text("x")
 
-    result = await ListDirTool().invoke({"path": str(tmp_path), "max_depth": 1})
+    result = await ListDirTool().invoke({"path": ".", "max_depth": 1})
     assert not result.is_error
     assert "child" in result.content
     assert "deep.txt" not in result.content
@@ -114,7 +121,7 @@ async def test_list_dir_respects_max_depth(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_list_dir_missing_path_raises() -> None:
     with pytest.raises(FileNotFoundError):
-        await ListDirTool().invoke({"path": "/this/does/not/exist"})
+        await ListDirTool().invoke({"path": "this/does/not/exist"})
 
 
 # 功能：验证 list_dir 拒绝包含 .. 的路径
