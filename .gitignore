@@ -10,6 +10,8 @@ build/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+# Playwright MCP 运行时生成的页面快照等临时产物
+.playwright-mcp/
 .vscode/
 uv.lock
 .idea/
