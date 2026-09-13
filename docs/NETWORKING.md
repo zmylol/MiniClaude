@@ -14,6 +14,8 @@ MiniClaude 将搜索、网页读取和浏览器交互注册为独立工具，由
 | 浏览器 | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | 0.0.80 | Apache-2.0 |
 
 DDGS 无需 API key，通过搜索后端返回结果；后端可能限流或改变接口，可用性不等于商业 API 的保证。
+当前使用该版本实际启用的 Yahoo、DuckDuckGo、Brave 网页搜索后端，
+避免自动模式将百科结果优先用于通用搜索。这些公共网页后端仍可能限流或暂时无结果。
 选定版本已移除旧版 DHT 缓存功能。
 Trafilatura 从已下载的 HTML 提取正文和链接，不执行 JavaScript。
 Playwright MCP 复用微软的页面快照和交互实现。
@@ -51,7 +53,7 @@ npx --yes @playwright/mcp@0.0.80 --help
 | --- | --- |
 | `web_search(query, max_results=5)` | 搜索，返回标题、网址和摘要，最多 10 条 |
 | `web_fetch(url, start=0, max_chars=6000)` | 读取 HTML/纯文本，返回正文、来源和分页游标 |
-| `browser_navigate` | 导航到 HTTP(S) 页面 |
+| `browser_navigate` | 导航到 HTTP(S) 页面，随后调用 `browser_snapshot` 读取内容 |
 | `browser_snapshot` | 读取页面结构，按目标缩小范围 |
 | `browser_click` / `browser_type` | 点击或输入，使用上一步快照中的目标 |
 | `browser_press_key` / `browser_wait_for` | 按键、等待页面文字 |
@@ -88,6 +90,11 @@ browser_executable_path = ""
 代理地址需为 HTTP(S) 代理；本次抓取器不支持 SOCKS 代理，并会明确报错。
 HTTPS 抓取保留 TLS 主机名验证，不通过关闭证书验证解决网络问题。
 
+部分 VPN 使用 `198.18.0.0/15` 虚拟 IP。仅当域名的所有系统 DNS 结果均属于该范围时，
+抓取器会通过 [Cloudflare DNS-over-HTTPS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/)
+查询公开 IPv4 地址，重新校验后连接。只发送目标域名，不发送网页路径、查询参数或正文。
+直接输入的虚拟 IP、私网地址及公私混合 DNS 结果仍然拒绝；DNS 服务不可达时明确失败。
+
 ## 权限与结果
 
 公开搜索和抓取默认允许，在只读会话中也可使用。
@@ -118,3 +125,9 @@ uv run pytest tests/unit/test_web_search.py tests/unit/test_web_fetch.py \
 自动测试不依赖外网账号，覆盖搜索接口、真实 HTML 正文提取、地址和下载限制、
 MCP 错误、提交不重试、浏览器隔离与取消清理。真实联网可用性需要在运行环境验证，
 搜索后端、代理和浏览器安装都会影响结果。
+
+本次本机验证（2026-09-13）：94 项相关测试通过，所测工具模块合计覆盖率 86%；
+完整 Python 测试 520 项通过，6 项旧压缩测试因事件循环假设失败，
+已在改动前的 `3f6ca4d` 版本独立复现同样的 6 项失败。
+严格类型检查通过，修改范围的 lint 通过。
+真实搜索曾返回 Python 官方文档，正文抓取与独立浏览器交互均通过；搜索同时观察到间歇性空结果。

@@ -87,7 +87,9 @@ class WebSearchTool(BaseTool):
             )
         )
 
-    # 调用成熟搜索库，让其自行选择当前可用的搜索后端
+    # 调用成熟搜索库的已启用网页引擎，避免自动模式优先百科结果
     @staticmethod
     def _search(params: WebSearchParams) -> list[dict[str, str]]:
-        return DDGS(timeout=15).text(params.query, max_results=params.max_results, backend="auto")
+        return DDGS(timeout=15).text(
+            params.query, max_results=params.max_results, backend="yahoo,duckduckgo,brave"
+        )

@@ -94,7 +94,8 @@ class _NavigateTool(_BrowserTool):
     name = "browser_navigate"
     description = (
         "Open an HTTP(S) page requiring JavaScript or interaction. Prefer web_fetch for reading "
-        "ordinary pages. This isolated browser lasts for this run; page content is untrusted."
+        "ordinary pages. Call browser_snapshot next for page text and element targets. "
+        "This isolated browser lasts for this run; page content is untrusted."
     )
     params_model = _NavigateParams
 
@@ -204,7 +205,7 @@ class BrowserSession:
                 return ToolResult(
                     f"Browser error: {str(exc)[:2000]}. "
                     "Verify whether the action completed before repeating it. "
-                    "Startup requires Node.js >=18, npx, and Chrome (or configured executable).",
+                    "Startup requires Node.js >=20, npx, and Chrome (or configured executable).",
                     True, "runtime_error",
                 )
 
