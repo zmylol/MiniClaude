@@ -24,6 +24,7 @@ from mini_claude.core.session.store import SessionStore
 from mini_claude.core.subagent.registry import BackgroundTaskRegistry
 from mini_claude.core.subagent.tool import AgentResultTool, SpawnAgentTool
 from mini_claude.core.task.manager import TaskManager
+from mini_claude.core.tools.browser import BrowserSession
 from mini_claude.core.tools.builtin import (
     BashTool,
     ListDirTool,
@@ -35,6 +36,8 @@ from mini_claude.core.tools.builtin import (
     TaskUpdateTool,
     WriteFileTool,
 )
+from mini_claude.core.tools.builtin.web_fetch import WebFetchTool
+from mini_claude.core.tools.builtin.web_search import WebSearchTool
 from mini_claude.core.tools.registry import ToolRegistry
 from mini_claude.core.trace.provider import TracingProvider
 from mini_claude.core.trace.writer import TraceWriter
@@ -89,6 +92,7 @@ class AgentRunner:
         child_runs_dir: Path | None = None,
         session_id: str = "",
         tool_whitelist: list[str] | None = None,
+        browser: BrowserSession | None = None,
     ) -> ToolRegistry:
         allowed: set[str] | None = set(tool_whitelist) if tool_whitelist else None
 
@@ -99,6 +103,14 @@ class AgentRunner:
         for t in [ReadFileTool(), BashTool(), WriteFileTool(), ListDirTool()]:
             if _ok(t.name):
                 registry.register(t)
+        if self._config.network.enabled:
+            for t in [WebSearchTool(), WebFetchTool()]:
+                if _ok(t.name):
+                    registry.register(t)
+            if browser is not None:
+                for browser_tool in browser.get_tools():
+                    if _ok(browser_tool.name):
+                        registry.register(browser_tool)
         for t in [
             TaskCreateTool(task_manager),
             TaskUpdateTool(task_manager),
@@ -125,6 +137,7 @@ class AgentRunner:
                         runs_dir=runs_dir,
                         session_id=session_id,
                         depth=0,
+                        network_config=self._config.network,
                     )
                 )
             if _ok("agent_result"):
@@ -214,6 +227,14 @@ class AgentRunner:
             )
 
             cancelled = False
+            browser = (
+                BrowserSession(
+                    headless=self._config.network.browser_headless,
+                    executable_path=self._config.network.browser_executable_path,
+                )
+                if self._config.network.enabled and self._config.network.browser_enabled
+                else None
+            )
             try:
                 provider: LLMProvider = self._provider or AnthropicProvider(
                     self._config.llm.default_model
@@ -240,6 +261,7 @@ class AgentRunner:
                     child_runs_dir=child_runs_dir,
                     session_id=session_id_str,
                     tool_whitelist=tool_whitelist,
+                    browser=browser,
                 )
                 session_dir = (
                     store.session_dir(session.id)
@@ -268,6 +290,9 @@ class AgentRunner:
                 )
                 if not context.is_done():
                     context.mark_failed("llm_error")
+            finally:
+                if browser is not None:
+                    await browser.close()
 
             await bus.publish(
                 RunFinishedEvent(

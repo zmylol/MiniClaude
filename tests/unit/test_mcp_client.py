@@ -42,17 +42,24 @@ async def test_call_tool_rejects_unsupported_only_content(monkeypatch: pytest.Mo
         await client.call_tool("image", {})
 
 
-# 功能：验证取消中的请求关闭连接，避免下一次调用读到迟到响应
-# 设计：在实际请求读阶段挂起，取消后断言关闭并拒绝继续复用传输
-async def test_cancelled_request_closes_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+# 功能：验证取消普通共享 MCP 请求后，后续调用仍能跳过迟到结果继续工作
+# 设计：先阻塞并取消第一次读取，再返回旧响应和新响应，避免浏览器清理策略影响专用连接器
+async def test_cancelled_shared_request_keeps_transport_usable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = McpClient()
     entered = asyncio.Event()
+    responses = iter([
+        {"id": 1, "result": {"content": [{"type": "text", "text": "old action"}]}},
+        {"id": 2, "result": {"content": [{"type": "text", "text": "new result"}]}},
+    ])
 
-    # 模拟请求已发送但服务器还没有返回
+    # 第一次读取被取消后模拟前后两次响应依次到达
     async def read() -> str:
-        entered.set()
-        await asyncio.Event().wait()
-        return "unreachable"
+        if not entered.is_set():
+            entered.set()
+            await asyncio.Event().wait()
+        return json.dumps(next(responses))
 
     monkeypatch.setattr(client, "_write_line", AsyncMock())
     monkeypatch.setattr(client, "_read_line", read)
@@ -63,7 +70,8 @@ async def test_cancelled_request_closes_transport(monkeypatch: pytest.MonkeyPatc
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    close.assert_awaited_once()
+    assert await client.call_tool("query", {}) == "new result"
+    close.assert_not_awaited()
 
 
 # 功能：验证关闭会回收当前 stdio 子进程且重复关闭无害
@@ -79,3 +87,84 @@ async def test_close_reaps_stdio_process(monkeypatch: pytest.MonkeyPatch) -> Non
     assert proc.returncode is not None
     with pytest.raises(McpServerUnavailableError):
         await client._write_line("{}")
+
+
+# 功能：验证启动进程的等待被取消时也接管并回收已经启动的进程
+# 设计：在真实本地子进程启动后延迟返回句柄，精确覆盖取消与句柄赋值之间的竞态
+async def test_cancelled_startup_reaps_created_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    original = asyncio.create_subprocess_exec
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    processes: list[asyncio.subprocess.Process] = []
+
+    # 启动真实进程后保留返回值直到测试允许握手续行
+    async def spawn(*args: object, **kwargs: object) -> asyncio.subprocess.Process:
+        proc = await original(*args, **kwargs)
+        processes.append(proc)
+        entered.set()
+        await release.wait()
+        return proc
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    client = McpClient()
+    task = asyncio.create_task(client.connect_stdio(sys.executable, ["-c", "import time; time.sleep(60)"]))
+    await entered.wait()
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert processes[0].returncode is not None
+    await client.close()
+
+
+# 功能：验证普通共享客户端保留连接错误供上层生命周期负责人处理
+# 设计：协议读阶段返回超时，确保专用连接器不会被浏览器的清理策略永久关闭
+async def test_transport_error_is_reported_to_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = McpClient()
+    monkeypatch.setattr(client, "_write_line", AsyncMock())
+    monkeypatch.setattr(client, "_read_line", AsyncMock(side_effect=McpServerUnavailableError("timeout")))
+    close = AsyncMock()
+    monkeypatch.setattr(client, "close", close)
+    with pytest.raises(McpServerUnavailableError, match="timeout"):
+        await client.call_tool("submit", {})
+    close.assert_not_awaited()
+
+
+# 功能：验证实际 stdio 上的 MCP 握手、工具发现、通知过滤及应用错误完整往返
+# 设计：使用无依赖本地协议服务验证真实字节边界，避免所有测试模拟私有方法而漏掉通信回归
+async def test_stdio_protocol_roundtrip() -> None:
+    program = '''
+import json
+import sys
+initialized = False
+for line in sys.stdin:
+    request = json.loads(line)
+    method = request['method']
+    if method == 'notifications/initialized':
+        initialized = True
+        continue
+    if method == 'initialize':
+        result = {'protocolVersion': '2024-11-05', 'capabilities': {}, 'serverInfo': {'name': 'fixture', 'version': '1'}}
+    elif method == 'tools/list':
+        assert initialized
+        result = {'tools': [{'name': 'echo', 'description': 'Echo text', 'inputSchema': {'type': 'object'}}]}
+    else:
+        print('startup diagnostic', flush=True)
+        print(json.dumps({'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {}}), flush=True)
+        if request['params']['name'] == 'fail':
+            print(json.dumps({'jsonrpc': '2.0', 'id': str(request['id']), 'error': {'code': -32602, 'message': 'invalid argument'}}), flush=True)
+            continue
+        result = {'content': [{'type': 'text', 'text': request['params']['arguments']['text']}]}
+    print(json.dumps({'jsonrpc': '2.0', 'id': str(request['id']), 'result': result}), flush=True)
+'''
+    client = McpClient()
+    try:
+        await client.connect_stdio(sys.executable, ["-u", "-c", program])
+        definitions = await client.list_tools()
+        assert len(definitions) == 1 and definitions[0].name == "echo"
+        assert await client.call_tool("echo", {"text": "hello"}) == "hello"
+        with pytest.raises(McpToolError, match="invalid argument"):
+            await client.call_tool("fail", {})
+        assert await client.call_tool("echo", {"text": "still connected"}) == "still connected"
+    finally:
+        await client.close()

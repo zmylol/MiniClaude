@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import signal
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +29,7 @@ class McpToolDef:
 
 # 通过 stdio 或 TCP 与 MCP server 通信的 JSON-RPC 2.0 客户端
 class McpClient:
+    # 初始化单连接状态与串行请求锁
     def __init__(self) -> None:
         self._id = 0
         self._proc: asyncio.subprocess.Process | None = None
@@ -35,6 +38,7 @@ class McpClient:
         self._transport = ""
         self._lock = asyncio.Lock()
         self._stderr_task: asyncio.Task[None] | None = None
+        self._close_task: asyncio.Task[None] | None = None
 
     _STREAM_LIMIT = 64 * 1024 * 1024  # 64 MB，防止大响应触发 LimitOverrunError
 
@@ -45,29 +49,44 @@ class McpClient:
         args: list[str],
         env: dict[str, str] | None = None,
     ) -> None:
-        import os
         merged_env = {**os.environ, **(env or {})}
-        self._proc = await asyncio.create_subprocess_exec(
+        spawn = asyncio.create_task(asyncio.create_subprocess_exec(
             command, *args,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=merged_env,
             limit=self._STREAM_LIMIT,
-        )
-        self._reader = self._proc.stdout
-        self._writer_proc = self._proc.stdin
-        self._transport = "stdio"
-        # 后台持续读取 stderr，防止管道缓冲区满导致子进程阻塞
-        self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self._initialize()
+            start_new_session=os.name == "posix",
+        ))
+        try:
+            self._proc = await asyncio.shield(spawn)
+            self._reader = self._proc.stdout
+            self._transport = "stdio"
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+            await self._initialize()
+        except BaseException:
+            # 创建进程的等待被取消时仍接管其句柄，防止 npx 子进程泄漏
+            if self._proc is None:
+                try:
+                    self._proc = await asyncio.shield(spawn)
+                except Exception:
+                    pass
+            await self.close()
+            raise
 
     # 通过 TCP 连接到 MCP server 并完成 initialize 握手
     async def connect_tcp(self, host: str, port: int) -> None:
-        self._reader, tcp_writer = await asyncio.open_connection(host, port, limit=self._STREAM_LIMIT)
+        self._reader, tcp_writer = await asyncio.open_connection(
+            host, port, limit=self._STREAM_LIMIT,
+        )
         self._tcp_writer = tcp_writer
         self._transport = "tcp"
-        await self._initialize()
+        try:
+            await self._initialize()
+        except BaseException:
+            await self.close()
+            raise
 
     # 发送 initialize 请求完成 MCP 握手
     async def _initialize(self) -> None:
@@ -90,14 +109,28 @@ class McpClient:
             ))
         return tools
 
-    # 调用 MCP server 上的工具，返回所有 text 内容拼接；连接异常抛 McpServerUnavailableError，工具错误抛 McpToolError
+    # 保留文本和结构化结果，并将 MCP 工具失败及不支持的响应明确传给调用方
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         response = await self._call("tools/call", {"name": name, "arguments": arguments})
         parts: list[str] = []
+        unsupported: set[str] = set()
         for item in response.get("content", []):
             if item.get("type") == "text":
                 parts.append(str(item["text"]))
-        return "\n".join(parts)
+            else:
+                unsupported.add(str(item.get("type", "unknown")))
+        structured = response.get("structuredContent")
+        if structured is not None:
+            parts.append(json.dumps(structured, ensure_ascii=False))
+        content = "\n".join(parts)
+        if response.get("isError"):
+            raise McpToolError(content or "MCP tool returned isError without text")
+        if unsupported:
+            detail = f"unsupported MCP content types: {', '.join(sorted(unsupported))}"
+            if not content:
+                raise McpToolError(detail)
+            content += f"\n[{detail}; omitted]"
+        return content
 
     # 后台任务：持续读取 stderr 并记录日志，防止管道缓冲区满
     async def _drain_stderr(self) -> None:
@@ -116,9 +149,39 @@ class McpClient:
         except Exception:
             log.debug("mcp stderr drain stopped", exc_info=True)
 
-    # 关闭连接并终止 stdio 子进程
+    # 共享清理任务以支持重复调用，并在取消时等待资源真正释放
     async def close(self) -> None:
-        # 先取消 stderr 读取任务
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close())
+        try:
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            await asyncio.shield(self._close_task)
+            raise
+
+    # 仅终止本客户端创建的进程组并回收子进程，随后清空传输状态
+    async def _close(self) -> None:
+        proc = self._proc
+        if proc is not None:
+            self._signal_process(proc, signal.SIGTERM)
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
+            except TimeoutError:
+                self._signal_process(proc, signal.SIGKILL)
+                await proc.wait()
+            finally:
+                # npx 可能先退出而仍有后代存活，收尾只针对独立创建的进程组
+                if os.name == "posix":
+                    self._signal_process(proc, signal.SIGKILL)
+                if proc.stdin is not None:
+                    proc.stdin.close()
+        writer = getattr(self, "_tcp_writer", None)
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
         if self._stderr_task is not None:
             self._stderr_task.cancel()
             try:
@@ -126,23 +189,20 @@ class McpClient:
             except asyncio.CancelledError:
                 pass
             self._stderr_task = None
-        if self._transport == "stdio" and self._proc is not None:
-            try:
-                self._proc.terminate()
-                await asyncio.wait_for(self._proc.wait(), timeout=5.0)
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
-        elif self._transport == "tcp":
-            writer = getattr(self, "_tcp_writer", None)
-            if writer is not None:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
+        self._proc = None
+        self._reader = None
+        self._transport = ""
+
+    # 向本客户端的独立进程组发信号，其他平台只操作所持有的进程句柄
+    @staticmethod
+    def _signal_process(proc: asyncio.subprocess.Process, sig: signal.Signals) -> None:
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, sig)
+            elif proc.returncode is None:
+                proc.send_signal(sig)
+        except ProcessLookupError:
+            pass
 
     # 发送 JSON-RPC 请求并等待响应；id 比较用字符串兼容服务端返回字符串 id 的情况
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -151,27 +211,30 @@ class McpClient:
         req_id_str = str(req_id)
         request = {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
         async with self._lock:
-            await self._write_line(json.dumps(request))
-            while True:
-                line = await self._read_line()
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    log.debug("mcp: ignoring non-JSON line: %r", line[:200])
-                    continue
-                msg_id = msg.get("id")
-                if msg_id is None:
-                    # server-initiated notification，忽略
-                    log.debug("mcp: received server notification: %s", msg.get("method"))
-                    continue
-                if str(msg_id) == req_id_str:
-                    if "error" in msg:
-                        err = msg["error"]
-                        raise McpToolError(
-                            f"{err.get('message', str(err))} (code={err.get('code')})"
-                        )
-                    result: dict[str, Any] = msg.get("result", {})
-                    return result
+            try:
+                await self._write_line(json.dumps(request))
+                while True:
+                    line = await self._read_line()
+                    try:
+                        msg = json.loads(line)
+                    except json.JSONDecodeError:
+                        log.debug("mcp: ignoring non-JSON line: %r", line[:200])
+                        continue
+                    msg_id = msg.get("id")
+                    if msg_id is None:
+                        # server-initiated notification，忽略
+                        log.debug("mcp: received server notification: %s", msg.get("method"))
+                        continue
+                    if str(msg_id) == req_id_str:
+                        if "error" in msg:
+                            err = msg["error"]
+                            raise McpToolError(
+                                f"{err.get('message', str(err))} (code={err.get('code')})"
+                            )
+                        result: dict[str, Any] = msg.get("result", {})
+                        return result
+            except (OSError, ConnectionError) as exc:
+                raise McpServerUnavailableError(str(exc)) from exc
 
     # 发送 JSON-RPC 通知（无响应）
     async def _notify(self, method: str, params: dict[str, Any]) -> None:
@@ -193,6 +256,8 @@ class McpClient:
                 raise McpServerUnavailableError("tcp writer unavailable")
             w.write(data)
             await w.drain()
+        else:
+            raise McpServerUnavailableError("MCP connection is closed")
 
     # 从 MCP server 读取一行 JSON；跳过空行，仅 EOF（b""）才视为连接断开
     async def _read_line(self) -> str:

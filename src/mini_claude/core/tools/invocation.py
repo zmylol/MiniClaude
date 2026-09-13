@@ -184,7 +184,7 @@ async def invoke_tool(
         assert error_class is not None and error_message is not None
         ms = elapsed()
 
-        if error_class in _RETRYABLE and attempt <= _MAX_RETRIES:
+        if tool.retry_on_error and error_class in _RETRYABLE and attempt <= _MAX_RETRIES:
             await bus.publish(
                 ToolCallFailedEvent(
                     run_id=run_id,

@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from mini_claude.core.mcp.client import McpClient, McpServerUnavailableError, McpToolDef, McpToolError
+from mini_claude.core.mcp.client import (
+    McpClient,
+    McpServerUnavailableError,
+    McpToolDef,
+    McpToolError,
+)
 from mini_claude.core.tools.base import BaseTool, ToolResult
 
 
 # 将 MCP 工具包装为 BaseTool，使 ToolRegistry 可透明调用
 class McpTool(BaseTool):
+    retry_on_error = False
     params_model = None  # input_schema 来自 MCP tool_def，不使用 pydantic model
 
     # 初始化 MCP 工具包装器，工具名以 server_name__ 为前缀防止命名冲突

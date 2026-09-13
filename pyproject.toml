@@ -17,6 +17,8 @@ dependencies = [
     "textual>=0.75",       # 终端 UI 框架（mini-tui）
     "aiohttp>=3.12,<4",    # 浏览器 UI 与 WebSocket 事件流网关（mini-web）
     "httpx[socks]>=0.28.1",
+    "ddgs==9.16.0",         # 搜索适配器；9.15 起已移除 DHT 缓存
+    "trafilatura==2.2.0",   # HTML 正文、链接与元数据提取
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,7 @@ dev = [
     "mypy>=1.10",           # 静态类型检查
     "pytest>=8.0",          # 单元测试
     "pytest-asyncio>=0.23", # 异步测试支持
+    "pytest-cov>=7.1,<8",   # 联网工具行为覆盖率
 ]
 
 # ---- Ruff：统一代码风格 ----

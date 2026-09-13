@@ -167,7 +167,8 @@ async def test_browser_output_is_bounded_and_marked_untrusted(client: AsyncMock)
     data = json.loads(result.content)
     assert data["untrusted_content"] is True
     assert data["truncated"] is True
-    assert len(data["content"]) <= 24000
+    assert len(data["content"]) <= 6000
+    assert len(result.content) < 8000
     await session.close()
 
 
@@ -184,3 +185,67 @@ async def test_browser_error_keeps_uncertain_action_result(client: AsyncMock) ->
     client.call_tool.assert_awaited_once()
     await session.close()
 
+
+
+# 功能：验证高转义密度页面也不会突破上下文压缩阈值
+# 设计：使用控制字符放大 JSON 编码，断言完整可解析结果仍低于八千字符
+async def test_browser_json_escaping_stays_under_compactor_limit(client: AsyncMock) -> None:
+    client.call_tool.return_value = "\x00" * 10000
+    session = BrowserSession()
+    result = await _tool(session, "browser_snapshot").invoke({})
+    assert len(result.content) < 8000
+    assert json.loads(result.content)["truncated"] is True
+    await session.close()
+
+
+# 功能：验证清理过程中再次取消调用方也会等待资源释放
+# 设计：挂起客户端 close，取消等待方后再释放，确保取消异常在清理完成后传播
+async def test_browser_close_survives_cancellation(client: AsyncMock) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+
+    # 用可观察事件模拟浏览器进程清理
+    async def close() -> None:
+        entered.set()
+        await release.wait()
+        completed.set()
+
+    client.close.side_effect = close
+    session = BrowserSession()
+    await _tool(session, "browser_snapshot").invoke({})
+    task = asyncio.create_task(session.close())
+    await entered.wait()
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert completed.is_set()
+    await session.close()
+    client.close.assert_awaited_once()
+
+
+# 功能：验证关闭等待动作完成时被取消也不会遗留会话资源
+# 设计：动作阻塞持有串行锁，关闭方在等待锁时被取消，之后释放动作并检查清理
+async def test_browser_close_cancelled_while_waiting_for_action(client: AsyncMock) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    # 保持一次有效浏览器调用未完成以覆盖清理等待锁的路径
+    async def call(*args: object) -> str:
+        entered.set()
+        await release.wait()
+        return "done"
+
+    client.call_tool.side_effect = call
+    session = BrowserSession()
+    action = asyncio.create_task(_tool(session, "browser_snapshot").invoke({}))
+    await entered.wait()
+    closing = asyncio.create_task(session.close())
+    await asyncio.sleep(0)
+    closing.cancel()
+    release.set()
+    await action
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+    client.close.assert_awaited_once()

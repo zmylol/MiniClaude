@@ -9,8 +9,7 @@ import pytest
 from mini_claude.core.agents.loader import AgentProfileLoader
 from mini_claude.core.config import MiniConfig, _apply_env, _apply_toml
 from mini_claude.core.events.bus import EventBus
-from mini_claude.core.llm.types import LlmResponse
-from mini_claude.core.llm.types import ToolCallBlock
+from mini_claude.core.llm.types import LlmResponse, ToolCallBlock
 from mini_claude.core.permissions.manager import PermissionManager
 from mini_claude.core.permissions.policy import PermissionDecision, evaluate
 from mini_claude.core.runner import AgentRunner

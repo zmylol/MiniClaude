@@ -92,6 +92,7 @@ class PermissionManager:
         if mode == "read_only":
             allowed = tool_name in {
                 "read_file", "list_dir", "task_get", "task_list", "agent_result", "spawn_agent",
+                "web_search", "web_fetch",
             }
             return allowed, "auto_allow" if allowed else "auto_deny"
         command = str(params.get("command", "")) if tool_name == "bash" else ""

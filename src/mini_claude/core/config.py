@@ -73,6 +73,14 @@ class McpConfig:
 
 
 @dataclass
+class NetworkConfig:
+    enabled: bool = True
+    browser_enabled: bool = True
+    browser_headless: bool = True
+    browser_executable_path: str = ""
+
+
+@dataclass
 class MiniConfig:
     host: str = _DEFAULT_HOST
     port: int = _DEFAULT_PORT
@@ -83,6 +91,7 @@ class MiniConfig:
     permission: PermissionConfig = field(default_factory=PermissionConfig)
     compaction: CompactionConfig = field(default_factory=CompactionConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
+    network: NetworkConfig = field(default_factory=NetworkConfig)
 
 
 # 构建并返回运行时配置：默认值 → 全局 TOML → 项目本地 TOML → .env → 系统环境变量（后者优先级最高）
@@ -117,7 +126,9 @@ def get_config() -> MiniConfig:
 
 # 将已解析的 TOML 根表写入 config；未知小节或类型错误时退出进程
 def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
-    unknown = set(data.keys()) - {"core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp"}
+    unknown = set(data.keys()) - {
+        "core", "logging", "agent", "llm", "trace", "permission", "compaction", "mcp", "network",
+    }
     if unknown:
         raise SystemExit(f"Unknown top-level config keys: {', '.join(sorted(unknown))}")
 
@@ -243,6 +254,20 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
                 raise SystemExit("Config error: compaction.tool_result_keep must be a positive integer")
             config.compaction.tool_result_keep = val
 
+    if "network" in data:
+        network = data["network"]
+        if not isinstance(network, dict):
+            raise SystemExit("Config error: [network] must be a table")
+        bool_keys = {"enabled", "browser_enabled", "browser_headless"}
+        unknown_network = set(network) - bool_keys - {"browser_executable_path"}
+        if unknown_network:
+            raise SystemExit(f"Unknown [network] keys: {', '.join(sorted(unknown_network))}")
+        for key, value in network.items():
+            expected = bool if key in bool_keys else str
+            if not isinstance(value, expected):
+                raise SystemExit(f"Config error: network.{key} must be {expected.__name__}")
+            setattr(config.network, key, value)
+
     if "mcp" in data:
         mcp = data["mcp"]
         if not isinstance(mcp, dict):
@@ -293,6 +318,21 @@ def _apply_toml(config: MiniConfig, data: dict[str, Any]) -> None:
 
 # 用 MINI_* 环境变量覆盖 config 中对应字段（若变量已设置）
 def _apply_env(config: MiniConfig) -> None:
+    for env_name, key in (
+        ("MINI_NETWORK_ENABLED", "enabled"),
+        ("MINI_BROWSER_ENABLED", "browser_enabled"),
+        ("MINI_BROWSER_HEADLESS", "browser_headless"),
+    ):
+        value = os.environ.get(env_name)
+        if value is not None:
+            normalized = value.strip().lower()
+            if normalized not in {"true", "false", "1", "0", "yes", "no"}:
+                raise SystemExit(f"Config error: {env_name} must be a boolean")
+            setattr(config.network, key, normalized in {"true", "1", "yes"})
+    executable = os.environ.get("MINI_BROWSER_EXECUTABLE_PATH")
+    if executable is not None:
+        config.network.browser_executable_path = executable
+
     host = os.environ.get("MINI_HOST")
     if host is not None:
         config.host = host

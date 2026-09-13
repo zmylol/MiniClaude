@@ -20,6 +20,7 @@ class BaseTool(ABC):
     description: str
     input_schema: dict[str, object]
     params_model: ClassVar[type[BaseModel] | None] = None
+    retry_on_error: bool = True
 
     # 执行工具调用，返回结果或错误
     @abstractmethod

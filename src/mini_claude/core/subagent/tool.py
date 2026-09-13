@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from mini_claude.core.agents.loader import AgentProfile, AgentProfileLoader
 from mini_claude.core.bus.events import SubagentFinishedEvent, SubagentStartedEvent
+from mini_claude.core.config import NetworkConfig
 from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.events.writer import EventWriter
@@ -16,6 +17,7 @@ from mini_claude.core.loop import AgentLoop
 from mini_claude.core.runs import new_run_id
 from mini_claude.core.subagent.registry import BackgroundTaskRegistry
 from mini_claude.core.tools.base import BaseTool, ToolResult
+from mini_claude.core.tools.browser import BrowserSession
 from mini_claude.core.tools.builtin.bash import BashTool
 from mini_claude.core.tools.builtin.list_dir import ListDirTool
 from mini_claude.core.tools.builtin.read_file import ReadFileTool
@@ -23,6 +25,8 @@ from mini_claude.core.tools.builtin.task_create import TaskCreateTool
 from mini_claude.core.tools.builtin.task_get import TaskGetTool
 from mini_claude.core.tools.builtin.task_list import TaskListTool
 from mini_claude.core.tools.builtin.task_update import TaskUpdateTool
+from mini_claude.core.tools.builtin.web_fetch import WebFetchTool
+from mini_claude.core.tools.builtin.web_search import WebSearchTool
 from mini_claude.core.tools.builtin.write_file import WriteFileTool
 from mini_claude.core.tools.registry import ToolRegistry
 
@@ -48,6 +52,7 @@ class SpawnAgentParams(BaseModel):
 # 在隔离的冷启动上下文中派生子 agent，支持前台阻塞和后台并行两种模式
 class SpawnAgentTool(BaseTool):
     name = "spawn_agent"
+    retry_on_error = False
     description = (
         "Spawn an isolated sub-agent to handle a self-contained sub-task. "
         "The sub-agent starts with a clean context containing only the provided prompt — "
@@ -93,6 +98,7 @@ class SpawnAgentTool(BaseTool):
         runs_dir: Path,
         session_id: str,
         depth: int = 0,
+        network_config: NetworkConfig | None = None,
     ) -> None:
         self._provider = provider
         self._parent_bus = parent_bus
@@ -103,6 +109,7 @@ class SpawnAgentTool(BaseTool):
         self._runs_dir = runs_dir
         self._session_id = session_id
         self._depth = depth
+        self._network_config = network_config if network_config is not None else NetworkConfig()
 
     # 派生子 agent，前台时阻塞直到完成并返回结果，后台时立即返回 run_id
     async def invoke(self, params: dict[str, object]) -> ToolResult:
@@ -135,7 +142,16 @@ class SpawnAgentTool(BaseTool):
 
         child_bus.subscribe(_bridge)
 
-        child_registry = self._build_child_registry(child_bus, child_run_id, profile)
+        browser = (
+            BrowserSession(
+                headless=self._network_config.browser_headless,
+                executable_path=self._network_config.browser_executable_path,
+            )
+            if self._network_config.enabled and self._network_config.browser_enabled else None
+        )
+        child_registry = self._build_child_registry(
+            child_bus, child_run_id, profile, browser=browser,
+        )
         child_loop = AgentLoop(
             self._provider,
             child_registry,
@@ -159,7 +175,7 @@ class SpawnAgentTool(BaseTool):
         if p.run_in_background:
             task: asyncio.Task[None] = asyncio.create_task(
                 self._run_background(
-                    child_loop, child_context, child_bus, child_run_path, child_run_id
+                    child_loop, child_context, child_bus, child_run_path, child_run_id, browser,
                 )
             )
             self._task_registry.register(child_run_id, task, child_context)
@@ -171,7 +187,7 @@ class SpawnAgentTool(BaseTool):
             )
 
         await self._run_background(
-            child_loop, child_context, child_bus, child_run_path, child_run_id,
+            child_loop, child_context, child_bus, child_run_path, child_run_id, browser,
         )
 
         if child_context.status == "success":
@@ -195,6 +211,7 @@ class SpawnAgentTool(BaseTool):
         bus: EventBus,
         run_path: Path,
         run_id: str,
+        browser: BrowserSession | None = None,
     ) -> None:
         try:
             async with EventWriter(run_path / "events.jsonl") as writer:
@@ -204,6 +221,8 @@ class SpawnAgentTool(BaseTool):
             context.mark_failed("cancelled")
             raise
         finally:
+            if browser is not None:
+                await browser.close()
             await self._parent_bus.publish(
                 SubagentFinishedEvent(
                     run_id=run_id,
@@ -219,6 +238,8 @@ class SpawnAgentTool(BaseTool):
         child_bus: EventBus,
         child_run_id: str,
         profile: AgentProfile | None,
+        *,
+        browser: BrowserSession | None = None,
     ) -> ToolRegistry:
         from mini_claude.core.task.manager import TaskManager
 
@@ -239,6 +260,15 @@ class SpawnAgentTool(BaseTool):
         for t in _all_tools:
             if _allowed(t.name):
                 registry.register(t)
+
+        if self._network_config.enabled:
+            for network_tool in [WebSearchTool(), WebFetchTool()]:
+                if _allowed(network_tool.name):
+                    registry.register(network_tool)
+            if browser is not None:
+                for browser_tool in browser.get_tools():
+                    if _allowed(browser_tool.name):
+                        registry.register(browser_tool)
 
         child_task_manager = TaskManager(self._runs_dir / child_run_id / ".tasks")
         for t in [
@@ -261,6 +291,7 @@ class SpawnAgentTool(BaseTool):
                 runs_dir=self._runs_dir,
                 session_id=self._session_id,
                 depth=self._depth + 1,
+                network_config=self._network_config,
             )
             if _allowed("spawn_agent"):
                 registry.register(nested)

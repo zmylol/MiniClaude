@@ -15,5 +15,9 @@ system_prompt = """
 - 遇到了哪些问题（如有）
 - 未完成的部分（如有）
 """
-allowed_tools = ["bash", "read_file", "write_file", "list_dir", "task_update", "task_list"]
+allowed_tools = [
+    "bash", "read_file", "write_file", "list_dir", "task_update", "task_list",
+    "web_search", "web_fetch", "browser_navigate", "browser_snapshot", "browser_click",
+    "browser_type", "browser_press_key", "browser_wait_for", "browser_close",
+]
 model = "claude-sonnet-4-6"
