@@ -177,3 +177,26 @@ async def test_failed_event_has_valid_error_class(monkeypatch: pytest.MonkeyPatc
     for e in events:
         if e.type == "tool.call_failed":  # type: ignore[attr-defined]
             assert e.error_class in valid_classes  # type: ignore[attr-defined]
+
+
+# 功能：验证具有副作用的工具可禁止自动重试，结果不明时只调用一次
+# 设计：首次失败后本会成功的桩显式关闭重试，最终必须保持首次错误
+async def test_tool_can_opt_out_of_runtime_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _FailNTimes(1)
+    tool.retry_on_error = False
+    result, events = await _run(tool, monkeypatch=monkeypatch)
+    assert result.is_error
+    failed = [event for event in events if event.type == "tool.call_failed"]
+    assert len(failed) == 1
+
+
+# 功能：验证通用 MCP 工具默认禁止重试以避免重复外部动作
+# 设计：直接检查真实 MCP 包装器策略，确保调用器的开关确实应用于外部系统
+async def test_mcp_tool_opts_out_of_retries() -> None:
+    from unittest.mock import AsyncMock
+
+    from mini_claude.core.mcp.client import McpClient, McpToolDef
+    from mini_claude.core.mcp.tool import McpTool
+
+    tool = McpTool(AsyncMock(spec=McpClient), "remote", McpToolDef(name="submit", description=""))
+    assert not tool.retry_on_error
