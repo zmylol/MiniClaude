@@ -263,12 +263,13 @@ async def test_budget_failure_keeps_every_arm(tmp_path: Path) -> None:
     await model.close()
 
 
-# 功能：配对汇总保留失败样本和双方互有胜负的信息
-# 设计：构造两道题一胜一负，防止只汇报增强方案占优的题目
-def test_aggregate_reports_paired_losses() -> None:
+@pytest.mark.parametrize("baseline", ["retrieval", "no_evidence"])
+# 功能：配对汇总保留失败样本、消融组与双方互有胜负的信息
+# 设计：构造两道题一胜一负，防止只报增强方案占优或显示未运行的对照
+def test_aggregate_reports_paired_losses(baseline: str) -> None:
     rows = []
     for index in range(2):
-        for method in ("summary", "retrieval", "versioned"):
+        for method in ("summary", baseline, "versioned"):
             rows.append(
                 {
                     "task_id": str(index),
@@ -289,7 +290,8 @@ def test_aggregate_reports_paired_losses() -> None:
                 }
             )
     result = aggregate(rows)
-    assert result["paired"]["retrieval"] == {
+    assert set(result["paired"]) == {"summary", baseline}
+    assert result["paired"][baseline] == {
         "versioned_wins": 1,
         "versioned_losses": 1,
         "ties": 0,
