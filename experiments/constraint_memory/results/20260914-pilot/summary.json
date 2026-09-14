@@ -1,0 +1,145 @@
+{
+  "mode": "live",
+  "methods": {
+    "retrieval": {
+      "n": 36,
+      "passed": 30,
+      "task_success_rate": 0.8333333333333334,
+      "constraint_violation_rate": 0.08333333333333333,
+      "evidence_accuracy": 0.8796296296296297,
+      "stale_revivals": 0,
+      "invalid_answers": 0,
+      "call_failures": 0,
+      "input_tokens": 162321,
+      "output_tokens": 28762,
+      "p50_pipeline_latency_s": 29.306251187925227,
+      "p95_pipeline_latency_s": 47.82142620894592,
+      "categories": {
+        "latest_update": {
+          "n": 6,
+          "passed": 6
+        },
+        "proposal_not_approval": {
+          "n": 6,
+          "passed": 5
+        },
+        "reverted_decision": {
+          "n": 6,
+          "passed": 4
+        },
+        "scoped_update": {
+          "n": 6,
+          "passed": 4
+        },
+        "tool_output_not_authority": {
+          "n": 6,
+          "passed": 5
+        },
+        "unchanged_control": {
+          "n": 6,
+          "passed": 6
+        }
+      }
+    },
+    "summary": {
+      "n": 36,
+      "passed": 29,
+      "task_success_rate": 0.8055555555555556,
+      "constraint_violation_rate": 0.1111111111111111,
+      "evidence_accuracy": 0.8888888888888888,
+      "stale_revivals": 0,
+      "invalid_answers": 1,
+      "call_failures": 1,
+      "input_tokens": 154644,
+      "output_tokens": 34684,
+      "p50_pipeline_latency_s": 31.6408110819757,
+      "p95_pipeline_latency_s": 49.80995870905463,
+      "categories": {
+        "latest_update": {
+          "n": 6,
+          "passed": 6
+        },
+        "proposal_not_approval": {
+          "n": 6,
+          "passed": 5
+        },
+        "reverted_decision": {
+          "n": 6,
+          "passed": 3
+        },
+        "scoped_update": {
+          "n": 6,
+          "passed": 4
+        },
+        "tool_output_not_authority": {
+          "n": 6,
+          "passed": 5
+        },
+        "unchanged_control": {
+          "n": 6,
+          "passed": 6
+        }
+      }
+    },
+    "versioned": {
+      "n": 36,
+      "passed": 30,
+      "task_success_rate": 0.8333333333333334,
+      "constraint_violation_rate": 0.08333333333333333,
+      "evidence_accuracy": 0.9166666666666666,
+      "stale_revivals": 0,
+      "invalid_answers": 0,
+      "call_failures": 0,
+      "input_tokens": 152910,
+      "output_tokens": 28790,
+      "p50_pipeline_latency_s": 30.68988218915183,
+      "p95_pipeline_latency_s": 42.65469270898029,
+      "categories": {
+        "latest_update": {
+          "n": 6,
+          "passed": 6
+        },
+        "proposal_not_approval": {
+          "n": 6,
+          "passed": 5
+        },
+        "reverted_decision": {
+          "n": 6,
+          "passed": 4
+        },
+        "scoped_update": {
+          "n": 6,
+          "passed": 4
+        },
+        "tool_output_not_authority": {
+          "n": 6,
+          "passed": 5
+        },
+        "unchanged_control": {
+          "n": 6,
+          "passed": 6
+        }
+      }
+    }
+  },
+  "paired": {
+    "retrieval": {
+      "versioned_wins": 0,
+      "versioned_losses": 0,
+      "ties": 36
+    },
+    "summary": {
+      "versioned_wins": 2,
+      "versioned_losses": 1,
+      "ties": 33
+    }
+  },
+  "budget": {
+    "max_calls": 324,
+    "max_tokens": 800000,
+    "calls": 323,
+    "accounted_tokens": 403936,
+    "reserved_tokens": 0
+  },
+  "report_code_sha256": "5b294f691bdc06e38906782a5abcb478195021f4caecf94dd5c597db7d0f2c1d"
+}

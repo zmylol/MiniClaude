@@ -1,0 +1,533 @@
+{
+  "reviewer": "Codex",
+  "post_hoc": true,
+  "independent_human_annotation": false,
+  "review_type": "Agent review of exact-match failures and evidence references",
+  "primary_scores_unchanged": true,
+  "not_new_gold": true,
+  "scope": {
+    "result_rows_reviewed": 108,
+    "tasks": 36,
+    "methods": 3,
+    "field_entries_in_primary_failure_review": 30,
+    "additional_source_reference_errors": 4
+  },
+  "source_artifacts": {
+    "results": {
+      "path": "experiments/constraint_memory/results/20260914-pilot/results.jsonl",
+      "sha256": "c24c08632abc854a8d5b9b17a55bda3f40f78c5f943138c8172f01627bcdc35e"
+    },
+    "calls": {
+      "path": "experiments/constraint_memory/results/20260914-pilot/calls.jsonl",
+      "sha256": "3859ddeb6f1a5612c8459b99f8a9562881f33c91a9e75c7a10c00e8a9b70c562"
+    },
+    "tasks": {
+      "path": "experiments/constraint_memory/tasks.jsonl",
+      "sha256": "427043c1d85eb74659d5963940fc61ad6fc02e246bbe615fcf0f1e2863de41a6"
+    },
+    "gold": {
+      "path": "experiments/constraint_memory/answers.json",
+      "sha256": "3084071ae34b2b9435e4730e2d44c6e034767cfdb17e62e30e820a10ebacd491"
+    }
+  },
+  "interpretation_limits": [
+    "All exact-match scores remain authoritative for this preregistered pilot. These classifications were assigned after observing the outputs and must not replace those scores.",
+    "This is a Codex diagnostic review, not independently adjudicated human annotation, a new gold set, or a validated semantic-equivalence metric.",
+    "Representation and paraphrase mismatches are still violations of the requested exact output contract and may be unusable by a downstream configuration consumer.",
+    "No primary outcome or label file was modified. No API calls were made for this diagnostic."
+  ],
+  "qualitative_findings": [
+    "All 27 value-string mismatches in completed answers appear to retain the intended current setting in context. No contradictory setting choice, adoption of a superseded value, or incorrect scope transfer was identified in this review.",
+    "One summary arm failed because a summary reached the configured output cap. Its three fields remain failures under the original metric; the partial summary is not a completed answer.",
+    "Four retrieval-arm evidence IDs, across two tasks whose values passed exact match, cite the update event for unchanged fields. These are objectively unsupported references under the public field-level decision protocol.",
+    "The current pilot does not establish a substantive constraint-retention advantage. Versioned and retrieval have identical task-level exact-match outcomes; the provenance observations are exploratory."
+  ],
+  "method_counts": {
+    "summary": {
+      "original_tasks": 36,
+      "original_exact_match_passes": 29,
+      "original_exact_match_failed_tasks": 7,
+      "failed_fields_by_diagnostic_classification": {
+        "separator_variation": 6,
+        "case_variation": 1,
+        "instruction_paraphrase": 2,
+        "summary_output_truncation": 3
+      },
+      "additional_incorrect_source_reference_fields": 0,
+      "additional_incorrect_source_reference_tasks": 0
+    },
+    "retrieval": {
+      "original_tasks": 36,
+      "original_exact_match_passes": 30,
+      "original_exact_match_failed_tasks": 6,
+      "failed_fields_by_diagnostic_classification": {
+        "field_name_in_value": 2,
+        "separator_variation": 6,
+        "unit_abbreviation": 1
+      },
+      "additional_incorrect_source_reference_fields": 4,
+      "additional_incorrect_source_reference_tasks": 2
+    },
+    "versioned": {
+      "original_tasks": 36,
+      "original_exact_match_passes": 30,
+      "original_exact_match_failed_tasks": 6,
+      "failed_fields_by_diagnostic_classification": {
+        "separator_variation": 6,
+        "field_name_in_value": 2,
+        "unit_abbreviation": 1
+      },
+      "additional_incorrect_source_reference_fields": 0,
+      "additional_incorrect_source_reference_tasks": 0
+    }
+  },
+  "primary_failure_fields": [
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 8,
+      "field": "theme",
+      "expected": "system",
+      "observed": "theme system",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "field_name_in_value",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 8,
+      "field": "motion",
+      "expected": "reduced-aware",
+      "observed": "motion reduced-aware",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "field_name_in_value",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/session-authentication",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 9,
+      "field": "session_duration",
+      "expected": "8-hours",
+      "observed": "8 hours",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 10,
+      "field": "transport",
+      "expected": "sse",
+      "observed": "SSE",
+      "expected_evidence_id": "e09",
+      "observed_evidence_id": "e09",
+      "classification": "case_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 10,
+      "field": "heartbeat",
+      "expected": "15-seconds",
+      "observed": "15 seconds",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "proposal_not_approval/scheduler-proposal",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 14,
+      "field": "poll_interval",
+      "expected": "20-seconds",
+      "observed": "20 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/package-distribution",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 15,
+      "field": "artifact",
+      "expected": "wheel",
+      "observed": "Restore artifact wheel; withdraw standalone-binary",
+      "expected_evidence_id": "e09",
+      "observed_evidence_id": "e09",
+      "classification": "instruction_paraphrase",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/package-distribution",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 15,
+      "field": "dependency_lock",
+      "expected": "committed",
+      "observed": "Commit the dependency lock",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "instruction_paraphrase",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "tool_output_not_authority/cache-default",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 19,
+      "field": "cache_ttl",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 26,
+      "field": "production_timeout",
+      "expected": "5-seconds",
+      "observed": "5 seconds",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 26,
+      "field": "staging_timeout",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 32,
+      "field": "admin_session",
+      "expected": "60-minutes",
+      "observed": "60 minutes",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 32,
+      "field": "guest_session",
+      "expected": "15-minutes",
+      "observed": "15 minutes",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 47,
+      "field": "heartbeat",
+      "expected": "15-seconds",
+      "observed": "15s",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "unit_abbreviation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "proposal_not_approval/scheduler-proposal",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 50,
+      "field": "poll_interval",
+      "expected": "20-seconds",
+      "observed": "20 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "tool_output_not_authority/cache-default",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 56,
+      "field": "cache_ttl",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 61,
+      "field": "production_timeout",
+      "expected": "5-seconds",
+      "observed": "5 seconds",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 61,
+      "field": "staging_timeout",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 62,
+      "field": "production_timeout",
+      "expected": "5-seconds",
+      "observed": null,
+      "classification": "summary_output_truncation",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": null,
+      "call_line": 170,
+      "note": "The final large-summary call stopped at its 512-token cap. The runner rejected the incomplete summary and did not issue an answer call. The truncated summary already lists the intended settings, but no completed answer exists."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 62,
+      "field": "staging_timeout",
+      "expected": "30-seconds",
+      "observed": null,
+      "classification": "summary_output_truncation",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": null,
+      "call_line": 170,
+      "note": "The final large-summary call stopped at its 512-token cap. The runner rejected the incomplete summary and did not issue an answer call. The truncated summary already lists the intended settings, but no completed answer exists."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 62,
+      "field": "response_format",
+      "expected": "json",
+      "observed": null,
+      "classification": "summary_output_truncation",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": null,
+      "call_line": 170,
+      "note": "The final large-summary call stopped at its 512-token cap. The runner rejected the incomplete summary and did not issue an answer call. The truncated summary already lists the intended settings, but no completed answer exists."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 68,
+      "field": "admin_session",
+      "expected": "60-minutes",
+      "observed": "60 minutes",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 68,
+      "field": "guest_session",
+      "expected": "15-minutes",
+      "observed": "15 minutes",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 81,
+      "field": "theme",
+      "expected": "system",
+      "observed": "theme system",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "field_name_in_value",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 81,
+      "field": "motion",
+      "expected": "reduced-aware",
+      "observed": "motion reduced-aware",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "field_name_in_value",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 84,
+      "field": "heartbeat",
+      "expected": "15-seconds",
+      "observed": "15s",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "unit_abbreviation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "proposal_not_approval/scheduler-proposal",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 88,
+      "field": "poll_interval",
+      "expected": "20-seconds",
+      "observed": "20 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "tool_output_not_authority/cache-default",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 95,
+      "field": "cache_ttl",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 102,
+      "field": "admin_session",
+      "expected": "60-minutes",
+      "observed": "60 minutes",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "summary",
+      "repeat": 0,
+      "result_line": 102,
+      "field": "guest_session",
+      "expected": "15-minutes",
+      "observed": "15 minutes",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In the source-task context this appears to preserve the selected setting, while violating the required exact value string. This is a post-hoc Codex interpretation, not a replacement score."
+    }
+  ],
+  "additional_evidence_errors": [
+    {
+      "task_id": "tool_output_not_authority/date-parser-log",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 64,
+      "field": "timezone",
+      "expected": "UTC",
+      "observed": "UTC",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "The setting value is exact, but e06 only changes another field. The cited e06 text does not establish this field; e01 does. The shared small summary attributes all three settings to e06. The retrieval answer follows that merged attribution despite e01 being present in its final prompt."
+    },
+    {
+      "task_id": "tool_output_not_authority/date-parser-log",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 64,
+      "field": "invalid_date",
+      "expected": "reject",
+      "observed": "reject",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "The setting value is exact, but e06 only changes another field. The cited e06 text does not establish this field; e01 does. The shared small summary attributes all three settings to e06. The retrieval answer follows that merged attribution despite e01 being present in its final prompt."
+    },
+    {
+      "task_id": "proposal_not_approval/pagination-proposal",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 85,
+      "field": "pagination",
+      "expected": "cursor",
+      "observed": "cursor",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "The setting value is exact, but e06 only changes another field. The cited e06 text does not establish this field; e01 does. The shared small summary attributes all three settings to e06. The retrieval answer follows that merged attribution despite e01 being present in its final prompt."
+    },
+    {
+      "task_id": "proposal_not_approval/pagination-proposal",
+      "method": "retrieval",
+      "repeat": 0,
+      "result_line": 85,
+      "field": "ordering",
+      "expected": "created-at-desc",
+      "observed": "created-at-desc",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "The setting value is exact, but e06 only changes another field. The cited e06 text does not establish this field; e01 does. The shared small summary attributes all three settings to e06. The retrieval answer follows that merged attribution despite e01 being present in its final prompt."
+    }
+  ]
+}

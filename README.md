@@ -339,6 +339,9 @@ IPC 命令和事件模型定义在 `src/mini_claude/core/bus/`。`WIRE_PROTOCOL.
 
 MiniClaude 使用 `src/` 布局、Hatchling 构建、Ruff + mypy + pytest 工具链。
 
+压缩后历史约束恢复的独立合成评测、运行方法与结果解释边界，见
+[约束记忆 pilot](experiments/constraint_memory/README.md)。
+
 ```bash
 uv sync
 uv run ruff check src tests scripts

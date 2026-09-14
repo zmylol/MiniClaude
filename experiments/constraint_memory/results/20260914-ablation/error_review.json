@@ -1,0 +1,354 @@
+{
+  "reviewer": "Codex",
+  "post_hoc": true,
+  "independent_human_annotation": false,
+  "review_type": "Agent review of ablation exact-match failures, evidence references, and the single discordant task",
+  "primary_scores_unchanged": true,
+  "not_new_gold": true,
+  "scope": {
+    "result_rows_reviewed": 72,
+    "tasks": 36,
+    "methods": 2,
+    "field_entries_in_primary_failure_review": 16,
+    "additional_source_reference_errors": 2,
+    "call_failures": 0
+  },
+  "source_artifacts": {
+    "results": {
+      "path": "experiments/constraint_memory/results/20260914-ablation/results.jsonl",
+      "sha256": "3138e2d8ca26026f72013c67a0dc2357d3d5838d365409d54d29331e27b0818e"
+    },
+    "calls": {
+      "path": "experiments/constraint_memory/results/20260914-ablation/calls.jsonl",
+      "sha256": "9240254d951bec7c3492df86ca09b43bc3cdd124a333f052ad015a0422415d2f"
+    },
+    "tasks": {
+      "path": "experiments/constraint_memory/tasks.jsonl",
+      "sha256": "427043c1d85eb74659d5963940fc61ad6fc02e246bbe615fcf0f1e2863de41a6"
+    },
+    "gold": {
+      "path": "experiments/constraint_memory/answers.json",
+      "sha256": "3084071ae34b2b9435e4730e2d44c6e034767cfdb17e62e30e820a10ebacd491"
+    }
+  },
+  "interpretation_limits": [
+    "The original exact-match scores are unchanged. These classifications were assigned after observing the outputs and cannot replace the original metrics.",
+    "This is a Codex diagnostic review, not independent human annotation, a new gold set, or a validated semantic-equivalence metric.",
+    "Representation differences still violate the required exact output contract and can matter to downstream configuration consumers.",
+    "The ablation is a separate run with a new shared summary realization; do not pool it with the main pilot or reinterpret between-run score changes as treatment effects.",
+    "The single substantive paired difference is a mechanism case, not evidence of statistical significance, general superiority, or natural-language decision extraction quality.",
+    "No raw result, label, code, or prompt was modified by this diagnostic. No API calls were made."
+  ],
+  "qualitative_findings": [
+    "Fourteen failed value strings across both methods are duration separator or unit-abbreviation differences that appear semantically equivalent in context.",
+    "The sole task-level disagreement is substantive: no_evidence loses the unchanged theme and motion settings in stylesheet-strategy, while versioned restores both from original evidence. The shared summary has incorrectly treated the entire initial multi-field event as superseded by a styling-only update.",
+    "Two additional no_evidence source references in pagination-proposal cite e06 instead of e01 despite exact correct values. The paired versioned answer cites e01.",
+    "No adoption of a superseded setting or incorrect transfer of an updated setting to another scope was identified among the completed answers. The missing settings are explicit unknown responses, not wrong replacement choices."
+  ],
+  "method_counts": {
+    "versioned": {
+      "original_tasks": 36,
+      "original_exact_match_passes": 31,
+      "original_exact_match_failed_tasks": 5,
+      "failed_fields_by_diagnostic_classification": {
+        "unit_abbreviation": 1,
+        "separator_variation": 6
+      },
+      "additional_incorrect_source_reference_fields": 0,
+      "additional_incorrect_source_reference_tasks": 0
+    },
+    "no_evidence": {
+      "original_tasks": 36,
+      "original_exact_match_passes": 30,
+      "original_exact_match_failed_tasks": 6,
+      "failed_fields_by_diagnostic_classification": {
+        "missing_current_value_after_summary_loss": 2,
+        "separator_variation": 6,
+        "unit_abbreviation": 1
+      },
+      "additional_incorrect_source_reference_fields": 2,
+      "additional_incorrect_source_reference_tasks": 1
+    }
+  },
+  "primary_failure_fields": [
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 6,
+      "field": "theme",
+      "expected": "system",
+      "observed": "unknown",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "missing_current_value_after_summary_loss",
+      "note": "A substantive missing value, not a formatting difference: the shared rolling summary drops this unchanged field after treating the original multi-field event as fully superseded. The no_evidence prompt retains the field-to-e01 header but not the value. The paired versioned prompt adds e01 text and its answer recovers the exact value."
+    },
+    {
+      "task_id": "reverted_decision/stylesheet-strategy",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 6,
+      "field": "motion",
+      "expected": "reduced-aware",
+      "observed": "unknown",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "missing_current_value_after_summary_loss",
+      "note": "A substantive missing value, not a formatting difference: the shared rolling summary drops this unchanged field after treating the original multi-field event as fully superseded. The no_evidence prompt retains the field-to-e01 header but not the value. The paired versioned prompt adds e01 text and its answer recovers the exact value."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 11,
+      "field": "heartbeat",
+      "expected": "15-seconds",
+      "observed": "15s",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "unit_abbreviation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "proposal_not_approval/scheduler-proposal",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 14,
+      "field": "poll_interval",
+      "expected": "20-seconds",
+      "observed": "20 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "tool_output_not_authority/cache-default",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 19,
+      "field": "cache_ttl",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 27,
+      "field": "production_timeout",
+      "expected": "5-seconds",
+      "observed": "5 seconds",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 27,
+      "field": "staging_timeout",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 29,
+      "field": "admin_session",
+      "expected": "60-minutes",
+      "observed": "60 minutes",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 29,
+      "field": "guest_session",
+      "expected": "15-minutes",
+      "observed": "15 minutes",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "reverted_decision/event-transport",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 45,
+      "field": "heartbeat",
+      "expected": "15-seconds",
+      "observed": "15s",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "unit_abbreviation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "proposal_not_approval/scheduler-proposal",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 50,
+      "field": "poll_interval",
+      "expected": "20-seconds",
+      "observed": "20 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "tool_output_not_authority/cache-default",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 56,
+      "field": "cache_ttl",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 64,
+      "field": "production_timeout",
+      "expected": "5-seconds",
+      "observed": "5 seconds",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/environment-timeout",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 64,
+      "field": "staging_timeout",
+      "expected": "30-seconds",
+      "observed": "30 seconds",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 65,
+      "field": "admin_session",
+      "expected": "60-minutes",
+      "observed": "60 minutes",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e01",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    },
+    {
+      "task_id": "scoped_update/role-session-duration",
+      "method": "versioned",
+      "repeat": 0,
+      "result_line": 65,
+      "field": "guest_session",
+      "expected": "15-minutes",
+      "observed": "15 minutes",
+      "expected_evidence_id": "e06",
+      "observed_evidence_id": "e06",
+      "classification": "separator_variation",
+      "note": "In this source-task context the answer appears to preserve the selected duration while violating the requested exact string. This post-hoc interpretation is not a replacement score."
+    }
+  ],
+  "additional_evidence_errors": [
+    {
+      "task_id": "proposal_not_approval/pagination-proposal",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 47,
+      "field": "pagination",
+      "expected": "cursor",
+      "observed": "cursor",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "e06 changes only page_limit; pagination and ordering are confirmed by e01. The shared summary attributes all three settings to e06, and this answer follows that attribution despite the retained version headers mapping this field to e01. The paired versioned answer uses e01."
+    },
+    {
+      "task_id": "proposal_not_approval/pagination-proposal",
+      "method": "no_evidence",
+      "repeat": 0,
+      "result_line": 47,
+      "field": "ordering",
+      "expected": "created-at-desc",
+      "observed": "created-at-desc",
+      "expected_evidence_id": "e01",
+      "observed_evidence_id": "e06",
+      "classification": "incorrect_source_reference",
+      "note": "e06 changes only page_limit; pagination and ordering are confirmed by e01. The shared summary attributes all three settings to e06, and this answer follows that attribution despite the retained version headers mapping this field to e01. The paired versioned answer uses e01."
+    }
+  ],
+  "paired_disagreement_review": {
+    "task_id": "reverted_decision/stylesheet-strategy",
+    "original_versioned_success": true,
+    "original_no_evidence_success": false,
+    "versioned_result_line": 42,
+    "no_evidence_result_line": 6,
+    "shared_summary_identical": true,
+    "classification": "substantive_recovery_of_unchanged_fields_lost_during_summary",
+    "fields": [
+      "theme",
+      "motion"
+    ],
+    "source_event": "e01",
+    "scope_of_update": "e06 and e09 update styling only; they do not revoke theme or motion.",
+    "trace": [
+      {
+        "call_line": 7,
+        "label": "reverted_decision/stylesheet-strategy/0/small/0",
+        "observation": "The first summary preserves styling css-modules, theme system, and motion reduced-aware from e01."
+      },
+      {
+        "call_line": 43,
+        "label": "reverted_decision/stylesheet-strategy/0/small/1",
+        "observation": "After e06 changes only styling, the summary incorrectly describes the whole e01 multi-field entry as superseded by e06."
+      },
+      {
+        "call_line": 78,
+        "label": "reverted_decision/stylesheet-strategy/0/small/2",
+        "observation": "The final summary retains current styling but drops the unchanged theme and motion values; it still says e01 remains superseded by e06."
+      },
+      {
+        "call_line": 114,
+        "label": "reverted_decision/stylesheet-strategy/0/answer/no_evidence",
+        "observation": "The prompt has the shared summary and e01 headers for theme and motion, with no raw text. The answer returns unknown for both values."
+      },
+      {
+        "call_line": 150,
+        "label": "reverted_decision/stylesheet-strategy/0/answer/versioned",
+        "observation": "The prompt has the same summary and version headers plus the original e01 text. The answer returns system and reduced-aware with e01 evidence."
+      }
+    ],
+    "interpretation": "This paired observation supports the intended evidence-recovery mechanism for this one synthetic task. It does not establish a general effect or justify replacing the registered exact-match metric."
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "mode": "live",
+  "methods": {
+    "no_evidence": {
+      "n": 36,
+      "passed": 30,
+      "task_success_rate": 0.8333333333333334,
+      "constraint_violation_rate": 0.08333333333333333,
+      "evidence_accuracy": 0.8981481481481481,
+      "stale_revivals": 0,
+      "invalid_answers": 0,
+      "call_failures": 0,
+      "input_tokens": 151205,
+      "output_tokens": 29034,
+      "p50_pipeline_latency_s": 30.89993618708104,
+      "p95_pipeline_latency_s": 48.51195950002875,
+      "categories": {
+        "latest_update": {
+          "n": 6,
+          "passed": 6
+        },
+        "proposal_not_approval": {
+          "n": 6,
+          "passed": 5
+        },
+        "reverted_decision": {
+          "n": 6,
+          "passed": 4
+        },
+        "scoped_update": {
+          "n": 6,
+          "passed": 4
+        },
+        "tool_output_not_authority": {
+          "n": 6,
+          "passed": 5
+        },
+        "unchanged_control": {
+          "n": 6,
+          "passed": 6
+        }
+      }
+    },
+    "versioned": {
+      "n": 36,
+      "passed": 31,
+      "task_success_rate": 0.8611111111111112,
+      "constraint_violation_rate": 0.06481481481481481,
+      "evidence_accuracy": 0.9351851851851852,
+      "stale_revivals": 0,
+      "invalid_answers": 0,
+      "call_failures": 0,
+      "input_tokens": 152867,
+      "output_tokens": 29036,
+      "p50_pipeline_latency_s": 33.205593146092724,
+      "p95_pipeline_latency_s": 49.962331791059114,
+      "categories": {
+        "latest_update": {
+          "n": 6,
+          "passed": 6
+        },
+        "proposal_not_approval": {
+          "n": 6,
+          "passed": 5
+        },
+        "reverted_decision": {
+          "n": 6,
+          "passed": 5
+        },
+        "scoped_update": {
+          "n": 6,
+          "passed": 4
+        },
+        "tool_output_not_authority": {
+          "n": 6,
+          "passed": 5
+        },
+        "unchanged_control": {
+          "n": 6,
+          "passed": 6
+        }
+      }
+    }
+  },
+  "paired": {
+    "no_evidence": {
+      "versioned_wins": 1,
+      "versioned_losses": 0,
+      "ties": 35
+    }
+  },
+  "budget": {
+    "max_calls": 180,
+    "max_tokens": 800000,
+    "calls": 180,
+    "accounted_tokens": 203631,
+    "reserved_tokens": 0
+  },
+  "report_code_sha256": "5b294f691bdc06e38906782a5abcb478195021f4caecf94dd5c597db7d0f2c1d"
+}
