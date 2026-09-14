@@ -1,6 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { markdown, safeUrl, historyMessages, readAttachments, composeContent } from '../../src/mini_claude/web/static/content.js';
+import * as contentView from '../../src/mini_claude/web/static/content.js';
+
+// 功能：历史恢复按调用 ID 配对服务端搜索，保留正文顺序与失败状态，不暴露思考签名。
+// 设计：交错两个搜索结果并混入本地工具，验证配对依赖 ID 而非最后一张卡片。
+test('restores server search results without exposing opaque thinking fields', () => {
+  const messages = historyMessages([{ role: 'assistant', content: [
+    { type: 'thinking', thinking: 'internal', signature: 'SECRET-SIGNATURE' },
+    { type: 'redacted_thinking', data: 'SECRET-REDACTED' },
+    { type: 'text', text: 'Searching' },
+    { type: 'server_tool_use', id: 'ok', name: 'web_search_prime', input: { query: 'Claude API' } },
+    { type: 'server_tool_use', id: 'bad', name: 'web_search', input: { query: 'Other' } },
+    { type: 'web_search_tool_result', tool_use_id: 'bad', content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' } },
+    { type: 'web_search_tool_result', tool_use_id: 'ok', content: [{ type: 'web_search_result', title: 'Docs', url: 'https://example.com/docs', encrypted_content: 'SECRET-RESULT' }] },
+    { type: 'text', text: 'Found it' },
+    { type: 'tool_use', id: 'local', name: 'read_file', input: { path: 'a.py' } },
+  ] }]);
+  assert.deepEqual(messages.map(message => message.kind), ['text', 'server_tool', 'server_tool', 'text', 'tool']);
+  const searches = messages.filter(message => message.kind === 'server_tool');
+  assert.equal(searches[0].params.query, 'Claude API');
+  assert.deepEqual(searches[0].results, [{ title: 'Docs', url: 'https://example.com/docs' }]);
+  assert.equal(searches[0].status, 'success');
+  assert.equal(searches[1].status, 'failed');
+  assert.equal(searches[1].error, 'max_uses_exceeded');
+  assert.ok(!JSON.stringify(messages).includes('SECRET'));
+});
+
+// 功能：搜索卡片转义第三方标题和查询，结果只允许安全网页链接。
+// 设计：混入脚本 URL、HTML 标题和错误文本，直接检查交给 DOM 的最终 HTML。
+test('renders safe server search cards with explicit errors', () => {
+  assert.equal(typeof contentView.serverToolHtml, 'function');
+  const html = contentView.serverToolHtml({ kind: 'server_tool', name: 'web_search', params: { query: '<query>' }, status: 'success', results: [
+    { title: '<img src=x onerror=alert(1)>', url: 'javascript:alert(1)' },
+    { title: 'Docs', url: 'https://example.com/docs?a=1&b=2' },
+  ] });
+  assert.ok(html.includes('&lt;query&gt;'));
+  assert.ok(html.includes('&lt;img'));
+  assert.ok(!html.includes('<img'));
+  assert.ok(!html.includes('href="javascript:'));
+  assert.ok(html.includes('href="https://example.com/docs?a=1&amp;b=2"'));
+  const failed = contentView.serverToolHtml({ name: 'web_search', params: {}, status: 'failed', results: [], error: '<error>' });
+  assert.ok(failed.includes('失败'));
+  assert.ok(failed.includes('&lt;error&gt;'));
+});
 
 test('renders code and links without allowing executable HTML or protocols', () => {
   const html = markdown('<img src=x onerror=alert(1)>\n[site](https://example.com/?a=1&b=2)\n```js\nconst html = "<script>";\n```');

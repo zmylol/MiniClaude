@@ -2,6 +2,46 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createConversation, applyEvent, interruptConversations, restorePermissions } from '../../src/mini_claude/web/static/state.js';
 
+// 功能：服务端搜索完成事件校正残句且可幂等重放，混合本地工具只生成一次执行卡片。
+// 设计：重复完成事件和迟到 token，再发送下一步回复，检查搜索与本地工具的独立归属。
+test('reconciles mixed server search content without duplicate text or local tools', () => {
+  const conversation = createConversation('a'); conversation.sessionId = 's';
+  const state = { conversations: [conversation], runs: {} };
+  const completed = { type: 'llm.response.completed', session_id: 's', run_id: 'r', step: 1, text: 'BeforeAfter', stop_reason: 'tool_use', content: [
+    { type: 'text', text: 'Before' },
+    { type: 'server_tool_use', id: 'search', name: 'web_search', input: { query: 'docs' } },
+    { type: 'web_search_tool_result', tool_use_id: 'search', content: [{ type: 'web_search_result', title: 'Docs', url: 'https://example.com' }] },
+    { type: 'text', text: 'After' },
+    { type: 'tool_use', id: 'local', name: 'read_file', input: { path: 'a.py' } },
+  ] };
+  for (const event of [
+    { type: 'llm.token', session_id: 's', run_id: 'r', step: 1, token: 'partial' },
+    completed,
+    { type: 'tool.call_started', session_id: 's', run_id: 'r', tool_use_id: 'local', tool_name: 'read_file', params: { path: 'a.py' } },
+    completed,
+    { type: 'llm.token', session_id: 's', run_id: 'r', step: 1, token: 'late' },
+    { type: 'llm.response.completed', session_id: 's', run_id: 'r', step: 2, text: 'Done' },
+  ]) applyEvent(state, event);
+  assert.deepEqual(conversation.messages.map(message => message.kind), ['text', 'tool', 'text']);
+  assert.deepEqual(conversation.messages[0].blocks?.map(message => message.kind), ['text', 'server_tool', 'text']);
+  assert.equal(conversation.messages[0].stopReason, 'tool_use');
+  assert.equal(conversation.messages[0].blocks[1].results[0].title, 'Docs');
+  assert.equal(conversation.messages[2].text, 'Done');
+});
+
+// 功能：响应停止原因以可理解的中文呈现，截断正文仍保留。
+// 设计：覆盖四种非正常停止，并检查最终状态和对应提示。
+test('explains model stop reasons without removing returned text', () => {
+  for (const [reason, label] of [['max_tokens', '输出达到上限'], ['model_context_window_exceeded', '上下文已满'], ['refusal', '模型拒绝'], ['unexpected_stop_reason', '响应不完整']]) {
+    const conversation = createConversation(reason); conversation.sessionId = 's';
+    const state = { conversations: [conversation], runs: {} };
+    applyEvent(state, { type: 'llm.response.completed', session_id: 's', run_id: 'r', step: 1, text: 'Partial answer', stop_reason: reason });
+    applyEvent(state, { type: 'run.finished', session_id: 's', run_id: 'r', status: 'failed', reason });
+    assert.equal(conversation.messages[0].text, 'Partial answer');
+    assert.ok(conversation.messages.at(-1).text.includes(label));
+  }
+});
+
 test('reconnection restores only still-pending approvals', () => {
   const conversation = createConversation('restore');
   conversation.mainStatus = 'running';
