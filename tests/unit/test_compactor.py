@@ -58,8 +58,8 @@ async def test_compact_messages_returns_summary(tmp_path: Path) -> None:
     assert result.summary_text == expected
 
 
-# 功能：验证 compact() 将 context.messages 替换为两条摘要消息对
-# 设计：调用 compact() 后断言 messages 长度为 2，role 分别为 user/assistant
+# 功能：压缩后只有用户摘要，避免无 thinking 的虚构助手消息破坏工具回传协议
+# 设计：真实 DeepSeek 会拒绝旧助手确认语，检查摘要上下文没有此类人工 assistant 轮次
 async def test_compact_replaces_context_messages(tmp_path: Path) -> None:
     provider = _stub_provider()
     bus = EventBus()
@@ -69,9 +69,8 @@ async def test_compact_replaces_context_messages(tmp_path: Path) -> None:
 
     await compactor.compact(ctx, provider)
 
-    assert len(ctx.messages) == 2
+    assert len(ctx.messages) == 1
     assert ctx.messages[0]["role"] == "user"
-    assert ctx.messages[1]["role"] == "assistant"
 
 
 # 功能：验证 compact() 在 session 目录写入 summary_*.md 文件

@@ -18,6 +18,7 @@ from mini_claude.core.tools.registry import ToolRegistry
 from mini_claude.core.tools.server_search import register_web_search
 from mini_claude.core.trace.provider import TracingProvider
 from mini_claude.core.trace.writer import TraceWriter
+from tests.unit.test_history_regressions import manager_for
 from tests.unit.test_loop import _EchoTool
 
 
@@ -98,7 +99,9 @@ async def test_paused_server_search_roundtrips_original_content() -> None:
 
     bus.subscribe(collect)
     context = ExecutionContext(run_id="search", goal="goal", max_steps=3)
-    await AgentLoop(provider, ToolRegistry(), bus).run(context)
+    registry = ToolRegistry()
+    registry.register_server_tool({"type": "web_search_20250305", "name": "web_search"})
+    await AgentLoop(provider, registry, bus).run(context)
 
     assert context.status == "success"
     assert requests[1][-1] == {"role": "assistant", "content": blocks}
@@ -206,7 +209,7 @@ async def test_paused_search_stops_when_permission_revoked() -> None:
         {"type": "server_tool_use", "id": "srv-1", "name": "web_search", "input": {"query": "Python"}},
     ])
     registry = ToolRegistry()
-    register_web_search(registry, provider, manager, "session")
+    register_web_search(registry, provider)
     bus = EventBus()
 
     # 在下一轮请求之前恢复默认禁止搜索策略
@@ -234,7 +237,7 @@ async def test_search_permission_is_evaluated_on_each_request() -> None:
     ]
     registry = ToolRegistry()
     registry.register(_EchoTool())
-    register_web_search(registry, provider, manager, "session")
+    register_web_search(registry, provider)
     bus = EventBus()
 
     # 首次本地步骤完成后模拟界面切换权限模式
@@ -251,3 +254,17 @@ async def test_search_permission_is_evaluated_on_each_request() -> None:
     assert [tool for tool in second if tool["name"] == "web_search"] == [
         {"type": "web_search_20250305", "name": "web_search", "max_uses": 5},
     ]
+
+
+# 功能：手动压缩也不持久化没有模型思考内容的人工助手确认语
+# 设计：走真实会话管理和摘要存储路径，断言下次发送模型的上下文只有用户摘要
+async def test_manual_compaction_avoids_synthetic_assistant(tmp_path: Path) -> None:
+    provider = AsyncMock()
+    provider.chat.return_value = LlmResponse(stop_reason="end_turn", text="summary")
+    manager = manager_for(tmp_path, provider)
+    session = await manager.create("chat")
+    await manager.send_message(session.id, "hello")
+
+    await manager.compact(session.id)
+
+    assert manager._store.read_messages(session.id) == [{"role": "user", "content": "summary"}]
