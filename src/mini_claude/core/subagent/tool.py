@@ -26,9 +26,9 @@ from mini_claude.core.tools.builtin.task_get import TaskGetTool
 from mini_claude.core.tools.builtin.task_list import TaskListTool
 from mini_claude.core.tools.builtin.task_update import TaskUpdateTool
 from mini_claude.core.tools.builtin.web_fetch import WebFetchTool
-from mini_claude.core.tools.builtin.web_search import WebSearchTool
 from mini_claude.core.tools.builtin.write_file import WriteFileTool
 from mini_claude.core.tools.registry import ToolRegistry
+from mini_claude.core.tools.server_search import register_web_search
 
 if TYPE_CHECKING:
     from mini_claude.core.llm.base import LLMProvider
@@ -282,9 +282,10 @@ class SpawnAgentTool(BaseTool):
                 registry.register(t)
 
         if self._network_config.enabled:
-            for network_tool in [WebSearchTool(), WebFetchTool()]:
-                if _allowed(network_tool.name):
-                    registry.register(network_tool)
+            if _allowed("web_search"):
+                register_web_search(registry, self._provider)
+            if _allowed("web_fetch"):
+                registry.register(WebFetchTool())
             if browser is not None:
                 for browser_tool in browser.get_tools():
                     if _allowed(browser_tool.name):

@@ -373,7 +373,6 @@ class SessionManager:
                 raise HandlerError(-32021, "compaction failed or not beneficial")
             self._store.write_compacted(sid, [
                 {"role": "user", "content": result.summary_text},
-                {"role": "assistant", "content": "Understood, I'll continue from this summary."},
             ])
             return SessionCompactResult(
                 summary_tokens=result.summary_tokens,

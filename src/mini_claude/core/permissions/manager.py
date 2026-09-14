@@ -23,6 +23,11 @@ from mini_claude.core.session.model import PermissionMode
 
 logger = logging.getLogger(__name__)
 
+_READ_ONLY_TOOLS = {
+    "read_file", "list_dir", "task_get", "task_list", "agent_result", "spawn_agent",
+    "web_search", "web_fetch",
+}
+
 
 def _now() -> str:
     return datetime.datetime.now(UTC).isoformat()
@@ -76,6 +81,21 @@ class PermissionManager:
         policy = self._policies.get(tool_name)
         return evaluate(tool_name, params, policy)
 
+    # 仅向服务端暴露已自动获准的工具，询问和拒绝都不能在上游执行后才处理
+    def can_use_server_tool(self, tool_name: str, session_id: str) -> bool:
+        mode = self._session_modes.get(session_id, "ask")
+        if mode == "full_access":
+            return True
+        if mode == "read_only":
+            return tool_name in _READ_ONLY_TOOLS
+        session_key = (session_id, tool_name)
+        if session_key in self._session_always:
+            return self._session_always[session_key] == "allow"
+        if tool_name in self._persistent_always:
+            return self._persistent_always[tool_name] == "allow"
+        policy = self._policies.get(tool_name)
+        return policy is not None and policy.default == PermissionDecision.ALLOW
+
     # 检查权限；如需 ask 则向客户端发事件并等待响应；返回 (allowed, decision_str)
     async def check_and_wait(
         self,
@@ -90,10 +110,7 @@ class PermissionManager:
         if mode == "full_access":
             return True, "auto_allow"
         if mode == "read_only":
-            allowed = tool_name in {
-                "read_file", "list_dir", "task_get", "task_list", "agent_result", "spawn_agent",
-                "web_search", "web_fetch",
-            }
+            allowed = tool_name in _READ_ONLY_TOOLS
             return allowed, "auto_allow" if allowed else "auto_deny"
         command = str(params.get("command", "")) if tool_name == "bash" else ""
         policy = self._policies.get(tool_name)

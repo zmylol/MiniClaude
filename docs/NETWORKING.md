@@ -1,7 +1,8 @@
 # 联网能力
 
 MiniClaude 将搜索、网页读取和浏览器交互注册为独立工具，由 agent 按任务选择。
-工具沿用现有 TUI/桌面的执行事件、权限审批和停止流程。
+官方 DeepSeek Anthropic 端点使用原生服务端搜索，其他后端保留本地 DDGS 搜索。
+网页抓取和浏览器交互继续在本地执行，沿用现有权限审批和停止流程。
 
 ## 上游选择
 
@@ -9,11 +10,17 @@ MiniClaude 将搜索、网页读取和浏览器交互注册为独立工具，由
 
 | 能力 | GitHub 上游 | 本次固定版本 | 许可证 |
 | --- | --- | --- | --- |
-| 搜索 | [deedy5/ddgs](https://github.com/deedy5/ddgs) | 9.16.0 | MIT |
+| DeepSeek 原生搜索 | [DeepSeek 官方搜索实现](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/web/web-search-deepseek/src/provider.ts) | `web_search_20250305` | 服务端能力 |
+| 其他后端的本地搜索 | [deedy5/ddgs](https://github.com/deedy5/ddgs) | 9.16.0 | MIT |
 | 网页正文 | [adbar/trafilatura](https://github.com/adbar/trafilatura) | 2.2.0 | Apache-2.0 |
 | 浏览器 | [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp) | 0.0.80 | Apache-2.0 |
 
-DDGS 无需 API key，通过搜索后端返回结果；后端可能限流或改变接口，可用性不等于商业 API 的保证。
+当实际 API base URL 为 `https://api.deepseek.com/anthropic` 或其 `/v1` 路径时，
+主代理和子代理发送原生定义 `{"type":"web_search_20250305","name":"web_search","max_uses":5}`，
+每次模型请求最多搜索 5 次。同一请求不再暴露 DDGS 搜索，服务端返回的搜索不会在本地重复执行。
+选择依据是 provider 的实际端点；模型名含有 DeepSeek 不会使其他代理地址自动启用此能力。
+
+其他端点继续使用 DDGS。DDGS 无需 API key，通过搜索后端返回结果；后端可能限流或改变接口，可用性不等于商业 API 的保证。
 当前使用该版本实际启用的 Yahoo、DuckDuckGo、Brave 网页搜索后端，
 避免自动模式将百科结果优先用于通用搜索。这些公共网页后端仍可能限流或暂时无结果。
 选定版本已移除旧版 DHT 缓存功能。
@@ -51,7 +58,8 @@ npx --yes @playwright/mcp@0.0.80 --help
 
 | 工具 | 作用 |
 | --- | --- |
-| `web_search(query, max_results=5)` | 搜索，返回标题、网址和摘要，最多 10 条 |
+| 原生 `web_search` | 官方 DeepSeek 在模型请求内搜索，返回结构化来源与引用，每次请求最多使用 5 次 |
+| 本地 `web_search(query, max_results=5)` | 其他后端使用 DDGS，返回标题、网址和摘要，最多 10 条 |
 | `web_fetch(url, start=0, max_chars=6000)` | 读取 HTML/纯文本，返回正文、来源和分页游标 |
 | `browser_navigate` | 导航到 HTTP(S) 页面，随后调用 `browser_snapshot` 读取内容 |
 | `browser_snapshot` | 读取页面结构，按目标缩小范围 |
@@ -85,7 +93,7 @@ browser_executable_path = ""
 **浏览器页面、登录状态不跨用户消息保留**；下一轮任务会建立新浏览器。
 同一浏览器的动作顺序执行；搜索和独立网页读取仍可并行。
 
-搜索代理使用上游支持的 `DDGS_PROXY`。
+仅本地 DDGS 搜索使用上游支持的 `DDGS_PROXY`；DeepSeek 原生搜索在其服务端执行。
 抓取按原始目标域名读取 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 与 `NO_PROXY`，
 代理地址需为 HTTP(S) 代理；本次抓取器不支持 SOCKS 代理，并会明确报错。
 HTTPS 抓取保留 TLS 主机名验证，不通过关闭证书验证解决网络问题。
@@ -98,6 +106,11 @@ HTTPS 抓取保留 TLS 主机名验证，不通过关闭证书验证解决网络
 ## 权限与结果
 
 公开搜索和抓取默认允许，在只读会话中也可使用。
+原生搜索在请求发出前按当前会话模式、会话授权、持久授权和默认工具策略检查权限；
+询问或拒绝时不发送搜索定义，也不自动退回 DDGS。服务端搜索无法在实际执行每条查询前等待本地审批。
+主代理、子代理的白名单与 `network.enabled` 同样限制原生搜索。
+每次后续模型请求都会重新检查权限；完全访问和只读模式沿用现有本地工具的授权优先级。
+搜索暂停后若权限被撤销，运行会明确提示服务器搜索不可用；仍有待完成的服务端调用时暂缓自动压缩。
 抓取仅访问公共 HTTP(S) 目标，每次重定向都检查地址，并固定到已校验的公共 IP，
 下载上限为 2 MiB，最多跟随 5 次重定向。
 私网和本机页面应通过经过审批的浏览器操作访问。
@@ -105,6 +118,10 @@ HTTPS 抓取保留 TLS 主机名验证，不通过关闭证书验证解决网络
 浏览器工具沿用现有审批模式，默认询问；只读模式拒绝浏览器操作，
 完全访问模式直接放行。现有“始终允许”按工具名生效，应根据实际任务选择授权范围。
 Playwright 会话隔离不等同于网络沙箱。
+
+模型的 thinking、搜索调用和结果按原顺序保存在会话中，跨轮结果会更新原搜索卡片。
+缺少结束边界的流会重试，重试耗尽后报告响应不完整；达到输出或上下文上限时保留已返回文本并结束运行。
+自动和手动压缩仅保留用户摘要，避免虚构的助手确认语破坏 DeepSeek 思考模式的后续工具请求。
 
 网页和搜索结果标注为外部不可信资料，并保留来源与抓取时间。
 抓取支持分页；浏览器快照截断时提示缩小目标范围。
@@ -119,7 +136,9 @@ executor 角色同时可用浏览器交互。自定义角色仍由其 `allowed_t
 ```bash
 uv run pytest tests/unit/test_web_search.py tests/unit/test_web_fetch.py \
   tests/unit/test_browser_tools.py tests/unit/test_mcp_client.py \
-  tests/unit/test_network_integration.py tests/unit/test_tool_retry.py
+  tests/unit/test_network_integration.py tests/unit/test_tool_retry.py \
+  tests/unit/test_server_search_registration.py tests/unit/test_tool_registry.py \
+  tests/unit/test_permission_manager.py
 ```
 
 自动测试不依赖外网账号，覆盖搜索接口、真实 HTML 正文提取、地址和下载限制、

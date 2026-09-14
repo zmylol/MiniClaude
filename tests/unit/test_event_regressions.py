@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -57,14 +59,10 @@ async def test_stream_retry_has_authoritative_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exhausted: bool,
 ) -> None:
     class BrokenStream(FakeStream):
-        @property
         # 输出半句后模拟网络断流
-        def text_stream(self) -> Any:
-            # 迭代器抛错以触发实际重试逻辑
-            async def chunks() -> Any:
-                yield "INCOMPLETE"
-                raise httpx.ReadError("disconnected")
-            return chunks()
+        async def __aiter__(self) -> AsyncIterator[Any]:
+            yield SimpleNamespace(type="text", text="INCOMPLETE")
+            raise httpx.ReadError("disconnected")
 
     monkeypatch.setattr("mini_claude.core.llm.provider._RETRY_BACKOFF_S", (0, 0, 0))
     client = MagicMock()

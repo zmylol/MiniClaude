@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
+from anthropic.types.raw_message_delta_event import Delta
 from pydantic import BaseModel
 
 from mini_claude.core.bus.events import LlmUsageEvent
@@ -20,58 +24,66 @@ from mini_claude.core.tools.registry import ToolRegistry
 # --- helpers -----------------------------------------------------------------
 
 
+# 构造真实 SDK 用量模型，避免模拟对象凭空生成不存在的字段
 def _make_usage(
     input_tokens: int = 100,
     output_tokens: int = 50,
     cache_read: int = 0,
     cache_create: int = 0,
-) -> MagicMock:
-    u = MagicMock()
-    u.input_tokens = input_tokens
-    u.output_tokens = output_tokens
-    u.cache_read_input_tokens = cache_read
-    u.cache_creation_input_tokens = cache_create
-    return u
+) -> Usage:
+    return Usage(input_tokens=input_tokens, output_tokens=output_tokens,
+                 cache_read_input_tokens=cache_read, cache_creation_input_tokens=cache_create)
 
 
 # 构造包含完整缓存计量的模拟最终响应
 def _make_final(
     stop_reason: str = "end_turn",
-    content: list[MagicMock] | None = None,
+    content: list[Any] | None = None,
     input_tokens: int = 100,
     output_tokens: int = 50,
     cache_read: int = 0,
     cache_create: int = 0,
-) -> MagicMock:
-    msg = MagicMock()
-    msg.stop_reason = stop_reason
-    msg.content = content or []
-    msg.usage = _make_usage(input_tokens, output_tokens, cache_read, cache_create)
-    return msg
+) -> Message:
+    return Message.model_construct(
+        id="msg_test", type="message", role="assistant", model="test-model",
+        stop_reason=stop_reason, content=content or [], stop_sequence=None,
+        usage=_make_usage(input_tokens, output_tokens, cache_read, cache_create),
+    )
 
 
 class FakeStream:
-    """Minimal async context manager that fakes the anthropic streaming interface."""
-
-    def __init__(self, texts: list[str], final: MagicMock) -> None:
+    # 保存真实 SDK 模型与可控分片，供协议事件迭代器使用
+    def __init__(self, texts: list[str], final: Message) -> None:
         self._texts = texts
-        self._final = final
+        self._final = final.model_copy(deep=True)
+        if texts:
+            self._final.content.append(TextBlock(type="text", text="".join(texts)))
 
+    # 进入模拟流上下文
     async def __aenter__(self) -> FakeStream:
         return self
 
+    # 退出模拟流上下文
     async def __aexit__(self, *args: object) -> None:
         pass
 
-    @property
-    def text_stream(self):  # type: ignore[return]
-        async def _gen():
-            for t in self._texts:
-                yield t
+    # 按 SDK 顺序产出消息边界、内容块和派生文本事件
+    async def __aiter__(self) -> AsyncIterator[Any]:
+        yield SimpleNamespace(type="message_start", message=self._final.model_copy(update={
+            "content": [], "stop_reason": None,
+        }))
+        for index, block in enumerate(self._final.content):
+            yield SimpleNamespace(type="content_block_start", index=index, content_block=block)
+            if block.type == "text":
+                for text in self._texts:
+                    yield SimpleNamespace(type="text", text=text)
+            yield SimpleNamespace(type="content_block_stop", index=index, content_block=block)
+        yield SimpleNamespace(type="message_delta", usage=self._final.usage,
+                              delta=Delta(stop_reason=self._final.stop_reason, stop_sequence=None))
+        yield SimpleNamespace(type="message_stop", message=self._final)
 
-        return _gen()
-
-    async def get_final_message(self) -> MagicMock:
+    # 返回完整模拟消息供 provider 提取停止原因与用量
+    async def get_final_message(self) -> Message:
         return self._final
 
 
@@ -79,7 +91,7 @@ class FakeStream:
 def _make_provider(
     texts: list[str] | None = None,
     stop_reason: str = "end_turn",
-    content: list[MagicMock] | None = None,
+    content: list[Any] | None = None,
     input_tokens: int = 100,
     output_tokens: int = 50,
     cache_read: int = 0,
@@ -189,13 +201,13 @@ async def test_usage_event_published_after_stream(
     ],
 )
 # 功能：验证缺失或为 None 的缓存字段按零处理且不丢弃另一项有效计量
-# 设计：用真实缺属性的 SimpleNamespace 模拟可选字段，避免 MagicMock 自动创建属性掩盖兼容性错误
+# 设计：用 SDK 模型区分缺省及显式 None 字段，避免 MagicMock 自动创建属性掩盖兼容性错误
 async def test_optional_cache_usage_fields(
     cache_fields: dict[str, int | None], expected_read: int, expected_create: int,
     expected_pct: float,
 ) -> None:
     final = _make_final()
-    final.usage = SimpleNamespace(input_tokens=200, output_tokens=75, **cache_fields)
+    final.usage = Usage.model_construct(input_tokens=200, output_tokens=75, **cache_fields)
     client = MagicMock()
     client.messages.stream.return_value = FakeStream([], final)
     provider = AnthropicProvider(model="test-model", client=client)
@@ -218,11 +230,8 @@ async def test_optional_cache_usage_fields(
 async def test_cached_input_triggers_loop_compaction(tmp_path: Path) -> None:
     source = tmp_path / "input.txt"
     source.write_text("cached context probe", encoding="utf-8")
-    tool_block = MagicMock()
-    tool_block.type = "tool_use"
-    tool_block.id = "read-probe"
-    tool_block.name = "read_file"
-    tool_block.input = {"path": str(source)}
+    tool_block = ToolUseBlock(type="tool_use", id="read-probe", name="read_file",
+                             input={"path": str(source)})
     provider, client = _make_provider(
         stop_reason="tool_use", content=[tool_block], input_tokens=1_000,
         cache_read=150_000, cache_create=10_000,
@@ -261,11 +270,8 @@ async def test_event_order_model_selected_first_usage_last() -> None:
 # 功能：验证 stop_reason=tool_use 时 final_message content block 被正确解析为 ToolCallBlock
 # 设计：注入带 tool_use block 的 final_message，逐字段检查 ToolCallBlock 的 id/name/input，确认解析路径完整
 async def test_tool_use_parsed_from_final_message() -> None:
-    tool_block = MagicMock()
-    tool_block.type = "tool_use"
-    tool_block.id = "toolu_01"
-    tool_block.name = "read_file"
-    tool_block.input = {"path": "README.md"}
+    tool_block = ToolUseBlock(type="tool_use", id="toolu_01", name="read_file",
+                             input={"path": "README.md"})
     provider, _ = _make_provider(stop_reason="tool_use", content=[tool_block])
     result, _ = await _chat(provider)
     assert result.stop_reason == "tool_use"

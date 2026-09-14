@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator
+from pydantic import BaseModel, Discriminator, Field
 
 from mini_claude.core.bus.schedule_commands import ScheduleChangedEvent
 from mini_claude.core.bus.workspace_commands import (
@@ -99,6 +99,8 @@ class LlmResponseCompletedEvent(RunEvent):
     run_id: str
     step: int
     text: str
+    content: list[dict[str, Any]] = Field(default_factory=list)
+    stop_reason: str = "end_turn"
     ts: str
 
 

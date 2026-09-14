@@ -6,7 +6,10 @@ import logging
 import time
 from typing import Any
 
+from rich.console import Group, RenderableType
 from rich.markdown import Markdown
+from rich.markup import escape
+from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -59,6 +62,8 @@ class LLMStreamBlock(Static):
         super().__init__("")
         self._text = ""
         self._finalized = False
+        self._content_blocks: list[dict[str, Any]] = []
+        self._search_results: dict[str, Any] = {}
 
     # 追加一个 token 并刷新显示
     def append_token(self, token: str) -> None:
@@ -73,6 +78,49 @@ class LLMStreamBlock(Static):
         self._finalized = False
         self.update(text)
         self.finalize_markdown()
+
+    # 用有序正文和配对搜索结果替换临时流，不展示签名或重复本地工具执行卡片
+    def replace_content(self, content: list[dict[str, Any]], text: str) -> None:
+        self.replace_text(text)
+        self._content_blocks = content
+        if not any(block.get("type") == "server_tool_use" for block in content):
+            return
+        self._search_results.update({
+            str(block.get("tool_use_id")): block.get("content")
+            for block in content if block.get("type") == "web_search_tool_result"
+        })
+        rendered: list[RenderableType] = []
+        for block in content:
+            if block.get("type") == "text" and block.get("text"):
+                rendered.append(Markdown(str(block["text"]), code_theme="monokai"))
+            elif block.get("type") == "server_tool_use":
+                result = self._search_results.get(str(block.get("id")))
+                failed = (
+                    isinstance(result, dict)
+                    and result.get("type") == "web_search_tool_result_error"
+                )
+                status = "失败" if failed else "已完成" if result is not None else "等待结果"
+                query = block.get("input", {}).get("query", "")
+                rendered.append(Text(
+                    f"搜索 · {block.get('name', '')} · {status}\n{query}",
+                    style="red" if failed else "cyan",
+                ))
+                if failed and isinstance(result, dict):
+                    rendered.append(Text(str(result.get("error_code", "搜索失败"))))
+                elif isinstance(result, list):
+                    for item in result:
+                        if item.get("type") == "web_search_result":
+                            rendered.append(Text(f"{item.get('title', '')}\n{item.get('url', '')}"))
+        self.update(Group(*rendered))
+
+    # 续写结果只更新包含同一调用 ID 的旧搜索卡，不修改原始内容块
+    def update_search_result(self, tool_use_id: str, result: Any) -> None:
+        if any(
+            block.get("type") == "server_tool_use" and block.get("id") == tool_use_id
+            for block in self._content_blocks
+        ):
+            self._search_results[tool_use_id] = result
+            self.replace_content(self._content_blocks, self._text)
 
     # 将累积文本渲染为 Markdown，供流式块结束后显示
     def finalize_markdown(self) -> None:
@@ -946,7 +994,17 @@ class MiniTuiApp(App[None]):
                 block.append_token(str(event.get("token", "")))
                 self._current_llm = block
             else:
-                block.replace_text(str(event.get("text", "")))
+                if t == "llm.response.completed" and event.get("content"):
+                    block.replace_content(event["content"], str(event.get("text", "")))
+                    for result in event["content"]:
+                        if result.get("type") == "web_search_tool_result":
+                            for (owner, _), previous in self._response_blocks.items():
+                                if owner == run_id:
+                                    previous.update_search_result(
+                                        str(result.get("tool_use_id")), result.get("content"),
+                                    )
+                else:
+                    block.replace_text(str(event.get("text", "")))
                 self._settled_responses.add(key)
                 if self._current_llm is block:
                     self._current_llm = None
@@ -1073,13 +1131,23 @@ class MiniTuiApp(App[None]):
             status = event.get("status", "")
             steps = event.get("steps", 0)
             reason = event.get("reason") or ""
+            reason = {
+                "max_tokens": "输出达到上限",
+                "model_context_window_exceeded": "上下文已满",
+                "refusal": "模型拒绝",
+                "unexpected_stop_reason": "响应不完整",
+                "unsupported_stop_reason": "响应不完整",
+                "incomplete_response": "响应不完整",
+                "invalid_tool_response": "工具响应不完整",
+                "server_tool_unavailable": "服务器搜索不可用或权限已变更",
+            }.get(reason, reason)
             if status == "success":
                 self._append(Static(
                     f"[bold green]✓ completed[/bold green]  [dim]{steps} steps[/dim]",
                     classes="run-ok",
                 ))
             else:
-                detail = f"  [dim]{reason}[/dim]" if reason else ""
+                detail = f"  [dim]{escape(reason)}[/dim]" if reason else ""
                 self._append(Static(
                     f"[bold red]✗ failed[/bold red]{detail}  [dim]{steps} steps[/dim]",
                     classes="run-err",

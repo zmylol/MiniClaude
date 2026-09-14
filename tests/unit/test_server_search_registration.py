@@ -7,7 +7,10 @@ import pytest
 
 from mini_claude.core.agents.loader import AgentProfile
 from mini_claude.core.config import MiniConfig
+from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
+from mini_claude.core.llm.types import LlmResponse
+from mini_claude.core.loop import AgentLoop
 from mini_claude.core.permissions.manager import PermissionManager
 from mini_claude.core.permissions.policy import PermissionDecision, ToolPolicy
 from mini_claude.core.runner import AgentRunner
@@ -112,24 +115,34 @@ def test_whitelist_applies_to_native_search(
 
 @pytest.mark.parametrize("scope", ["root", "child"])
 @pytest.mark.parametrize("decision", [PermissionDecision.DENY, PermissionDecision.ASK])
-# 功能：需要审批或已禁止搜索时，主代理和子代理都不暴露原生搜索，也不退回 DDGS
+# 功能：需要审批或已禁止搜索时，主代理和子代理都不发送原生搜索，也不退回 DDGS
 # 设计：服务端执行无法等待本地逐次审批，必须在发送 schema 前执行已有权限策略
-def test_native_search_requires_permission_before_registration(
+async def test_native_search_requires_permission_before_dispatch(
     tmp_path: Path, scope: str, decision: PermissionDecision,
 ) -> None:
     permissions = PermissionManager({"web_search": ToolPolicy(default=decision)})
     registry = _registry(tmp_path, scope, native=True, permissions=permissions)
-    assert "web_search" not in {item["name"] for item in registry.tool_schemas()}
+    provider = AsyncMock()
+    provider.chat.return_value = LlmResponse(stop_reason="end_turn", text="done")
+    await AgentLoop(provider, registry, EventBus(), permission_manager=permissions, session_id="session").run(
+        ExecutionContext(run_id="denied", goal="goal", max_steps=1),
+    )
+    assert "web_search" not in {item["name"] for item in provider.chat.call_args.kwargs["tool_schemas"]}
     assert registry.get("web_search") is None
 
 
 @pytest.mark.parametrize("scope", ["root", "child"])
 # 功能：持久化的始终拒绝搜索同时限制主代理和角色子代理
 # 设计：通过审批响应处理路径写入临时策略文件，再重建管理器验证跨会话拒绝不会被原生搜索绕过
-def test_native_search_respects_persisted_denial(tmp_path: Path, scope: str) -> None:
+async def test_native_search_respects_persisted_denial(tmp_path: Path, scope: str) -> None:
     policy_file = tmp_path / "permissions.toml"
     manager = PermissionManager(policy_file=policy_file)
     manager._apply_response("always_deny", "old-session", "web_search")
     restored = PermissionManager(policy_file=policy_file)
     registry = _registry(tmp_path, scope, native=True, permissions=restored)
-    assert "web_search" not in {item["name"] for item in registry.tool_schemas()}
+    provider = AsyncMock()
+    provider.chat.return_value = LlmResponse(stop_reason="end_turn", text="done")
+    await AgentLoop(provider, registry, EventBus(), permission_manager=restored, session_id="session").run(
+        ExecutionContext(run_id="denied", goal="goal", max_steps=1),
+    )
+    assert "web_search" not in {item["name"] for item in provider.chat.call_args.kwargs["tool_schemas"]}

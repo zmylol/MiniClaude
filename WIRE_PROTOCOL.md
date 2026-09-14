@@ -303,6 +303,75 @@ All commands are sent as JSON-RPC 2.0 requests. The `type` field inside `params`
 }
 ```
 
+Subscription scopes: `global`, `run:<id>` (one run), `tree:<id>` (root and descendants), and `session:<id>`. Replay applies both topic and scope filters and can include related child logs. Legacy records inherit missing scope fields from session metadata and recorded parent links.
+
+### PermissionRespondCommand
+
+| Field | Type | Required |
+|---|---|---|
+| `run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Id"
+    },
+    "type": {
+      "const": "permission.respond",
+      "default": "permission.respond",
+      "title": "Type",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool_use_id",
+    "decision"
+  ],
+  "title": "PermissionRespondCommand",
+  "type": "object"
+}
+```
+### PermissionRespondResult
+
+| Field | Type | Required |
+|---|---|---|
+| `ok` | `boolean` | no |
+
+```json
+{
+  "properties": {
+    "ok": {
+      "default": true,
+      "title": "Ok",
+      "type": "boolean"
+    }
+  },
+  "title": "PermissionRespondResult",
+  "type": "object"
+}
+```
+
 ### SessionCreateCommand
 
 | Field | Type | Required |
@@ -3194,19 +3263,59 @@ Events sent over the IPC socket (daemon → client).
 
 Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscribed clients.
 
+Run events carry `session_id`, `root_run_id`, and `parent_run_id` when known. These optional fields preserve compatibility with older logs. Child runs own separate logs that remain active after their parent finishes. Approval identity is `(run_id, tool_use_id)`; legacy replies without `run_id` require a unique match.
+
 ### RunStartedEvent
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `goal` | `string` | yes |
 | `ts` | `string` | yes |
-| `session_id` | `string | null` | no |
 
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "run.started",
       "default": "run.started",
@@ -3224,18 +3333,6 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "ts": {
       "title": "Ts",
       "type": "string"
-    },
-    "session_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Session Id"
     }
   },
   "required": [
@@ -3263,6 +3360,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `status` | `string` | yes |
@@ -3273,6 +3373,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "run.finished",
       "default": "run.finished",
@@ -3336,6 +3472,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `step` | `integer` | yes |
@@ -3344,6 +3483,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "step.started",
       "default": "step.started",
@@ -3388,6 +3563,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `step` | `integer` | yes |
@@ -3396,6 +3574,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "step.finished",
       "default": "step.finished",
@@ -3440,6 +3654,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `tool_use_id` | `string` | yes |
@@ -3450,6 +3667,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "tool.call_started",
       "default": "tool.call_started",
@@ -3509,6 +3762,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `tool_use_id` | `string` | yes |
@@ -3520,6 +3776,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "tool.call_finished",
       "default": "tool.call_finished",
@@ -3581,6 +3873,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `tool_use_id` | `string` | yes |
@@ -3594,6 +3889,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "tool.call_failed",
       "default": "tool.call_failed",
@@ -3668,6 +3999,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `model` | `string` | yes |
@@ -3677,6 +4011,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "llm.model_selected",
       "default": "llm.model_selected",
@@ -3727,14 +4097,54 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `token` | `string` | yes |
+| `step` | `integer` | no |
 | `ts` | `string` | yes |
 
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "llm.token",
       "default": "llm.token",
@@ -3748,6 +4158,11 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
     "token": {
       "title": "Token",
       "type": "string"
+    },
+    "step": {
+      "default": 0,
+      "title": "Step",
+      "type": "integer"
     },
     "ts": {
       "title": "Ts",
@@ -3770,8 +4185,602 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 {
   "type": "llm.token",
   "run_id": "20260516-100000-abc123",
+  "step": 1,
   "token": "The ",
   "ts": "2026-05-16T10:00:00.001Z"
+}
+```
+
+Responses are identified by `(run_id, step)`. Tokens are provisional. `llm.response.completed` replaces the entire text for that response, including an empty text, and is safe to apply repeatedly. Ignore later tokens for a settled response. `llm.response.failed` marks provisional text incomplete on cancellation or model failure. Completion describes a model response; `run.finished` follows history persistence. CLI stdout buffers each response until its final text is available.
+
+### LlmResponseCompletedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `text` | `string` | yes |
+| `content` | `array` | no |
+| `stop_reason` | `string` | no |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "type": {
+      "const": "llm.response.completed",
+      "default": "llm.response.completed",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "content": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Content",
+      "type": "array"
+    },
+    "stop_reason": {
+      "default": "end_turn",
+      "title": "Stop Reason",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "text",
+    "ts"
+  ],
+  "title": "LlmResponseCompletedEvent",
+  "type": "object"
+}
+```
+### LlmResponseFailedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `step` | `integer` | yes |
+| `reason` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "type": {
+      "const": "llm.response.failed",
+      "default": "llm.response.failed",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "step": {
+      "title": "Step",
+      "type": "integer"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "step",
+    "reason",
+    "ts"
+  ],
+  "title": "LlmResponseFailedEvent",
+  "type": "object"
+}
+```
+### PermissionRequestedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string` | yes |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `tool_name` | `string` | yes |
+| `params` | `object` | yes |
+| `param_preview` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "type": {
+      "const": "permission.requested",
+      "default": "permission.requested",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "tool_name": {
+      "title": "Tool Name",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": true,
+      "title": "Params",
+      "type": "object"
+    },
+    "param_preview": {
+      "title": "Param Preview",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "session_id",
+    "run_id",
+    "tool_use_id",
+    "tool_name",
+    "params",
+    "param_preview",
+    "ts"
+  ],
+  "title": "PermissionRequestedEvent",
+  "type": "object"
+}
+```
+### PermissionGrantedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "type": {
+      "const": "permission.granted",
+      "default": "permission.granted",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "decision",
+    "ts"
+  ],
+  "title": "PermissionGrantedEvent",
+  "type": "object"
+}
+```
+### PermissionDeniedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `tool_use_id` | `string` | yes |
+| `decision` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
+    "type": {
+      "const": "permission.denied",
+      "default": "permission.denied",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "tool_use_id": {
+      "title": "Tool Use Id",
+      "type": "string"
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "tool_use_id",
+    "decision",
+    "ts"
+  ],
+  "title": "PermissionDeniedEvent",
+  "type": "object"
+}
+```
+### SubagentStartedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string` | yes |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `description` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "title": "Parent Run Id",
+      "type": "string"
+    },
+    "type": {
+      "const": "subagent.started",
+      "default": "subagent.started",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "parent_run_id",
+    "run_id",
+    "description",
+    "ts"
+  ],
+  "title": "SubagentStartedEvent",
+  "type": "object"
+}
+```
+### SubagentFinishedEvent
+
+| Field | Type | Required |
+|---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string` | yes |
+| `type` | `string` | no |
+| `run_id` | `string` | yes |
+| `status` | `string` | yes |
+| `ts` | `string` | yes |
+
+```json
+{
+  "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "title": "Parent Run Id",
+      "type": "string"
+    },
+    "type": {
+      "const": "subagent.finished",
+      "default": "subagent.finished",
+      "title": "Type",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "ts": {
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "parent_run_id",
+    "run_id",
+    "status",
+    "ts"
+  ],
+  "title": "SubagentFinishedEvent",
+  "type": "object"
 }
 ```
 
@@ -3779,6 +4788,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `input_tokens` | `integer` | yes |
@@ -3791,6 +4803,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "llm.usage",
       "default": "llm.usage",
@@ -3858,6 +4906,9 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 
 | Field | Type | Required |
 |---|---|---|
+| `session_id` | `string | null` | no |
+| `root_run_id` | `string | null` | no |
+| `parent_run_id` | `string | null` | no |
 | `type` | `string` | no |
 | `run_id` | `string` | yes |
 | `level` | `string` | yes |
@@ -3868,6 +4919,42 @@ Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscri
 ```json
 {
   "properties": {
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "root_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Root Run Id"
+    },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Run Id"
+    },
     "type": {
       "const": "log.line",
       "default": "log.line",

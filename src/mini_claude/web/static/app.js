@@ -1,6 +1,6 @@
 import { createConversation, applyEvent, interruptConversations, restorePermissions } from './state.js';
 import { EventConnection } from './transport.js';
-import { escapeHtml, markdown, historyMessages, readAttachments, composeContent } from './content.js';
+import { escapeHtml, markdown, historyMessages, readAttachments, composeContent, serverToolHtml, eventJson } from './content.js';
 import { WorkspaceViews } from './views.js';
 import { ProjectPicker } from './projects.js';
 import { WorkspaceSidebar, hasConversationDraft } from './sidebar.js';
@@ -41,7 +41,7 @@ function restore() {
     if (!saved || !Array.isArray(saved.conversations)) return;
     state.conversations = saved.conversations.filter(c => typeof c.id === 'string' && Array.isArray(c.messages)).map(c => ({
       ...createConversation(c.id), ...c,
-      messages: c.messages.filter(m => m && ['text', 'tool', 'permission', 'notice', 'agent', 'image'].includes(m.kind)),
+      messages: c.messages.filter(m => m && ['text', 'tool', 'server_tool', 'permission', 'notice', 'agent', 'image'].includes(m.kind)),
       attachments: [],
       historyLoaded: false, loadingHistory: false, stopping: false,
     }));
@@ -133,9 +133,11 @@ function renderSidebar() {
 
 // 把消息转换为安全的展示内容；审批按钮只在仍有效且在线时启用。
 function messageHtml(message, index) {
+  if (message.kind === 'text' && message.blocks?.length) return message.blocks.map(block => messageHtml(block, index)).join('');
   if (message.kind === 'text') return `<article class="message ${escapeHtml(message.role)}"><div class="message-body">${message.role === 'assistant' ? markdown(message.text) : escapeHtml(message.text)}${message.files?.length ? `<div class="sent-files">${message.files.map(name => `<span>${icon('paperclip')}${escapeHtml(name)}</span>`).join('')}</div>` : ''}</div><button class="message-copy" data-copy-message="${index}" aria-label="复制消息">复制</button></article>`;
   if (message.kind === 'image' && /^image\/(png|jpeg|webp|gif)$/.test(message.mediaType)) return `<article class="message user"><img class="message-image" src="data:${message.mediaType};base64,${escapeHtml(message.data)}" alt="${escapeHtml(message.name || '已添加的图片')}"></article>`;
   if (message.kind === 'tool') return `<details class="tool-card ${message.status === 'failed' ? 'error' : ''}"><summary>${icon('terminal')}${escapeHtml(message.name)}<span class="tool-status">${({ running: '执行中', success: '已完成', failed: '失败' })[message.status]}${message.elapsed != null ? ` · ${message.elapsed} ms` : ''}</span></summary><pre>${escapeHtml(JSON.stringify(message.params, null, 2))}</pre>${message.output ? `<pre>${escapeHtml(message.output)}</pre>` : ''}</details>`;
+  if (message.kind === 'server_tool') return serverToolHtml(message);
   if (message.kind === 'agent') return `<div class="tool-card"><div class="agent-summary">${icon('code')}${escapeHtml(message.text)} · ${message.status === 'running' ? '子代理执行中' : message.status === 'success' ? '已完成' : '未完成'}</div></div>`;
   if (message.kind === 'permission') {
     const decisions = { allow_once: '已允许本次执行', always_allow: '已始终允许此工具', deny_once: '已拒绝本次执行', always_deny: '已始终拒绝此工具', disconnected: '连接中断，审批状态未确认', expired: '此次审批已结束' };
@@ -204,7 +206,7 @@ function scrollToLatest() {
   syncScrollButton();
 }
 
-// 事件面板只展示当前会话最近 200 条原始事件。
+// 事件面板只展示当前会话最近 200 条事件，隐藏不透明的签名和密文。
 function renderEvents() {
   if ($('#event-panel').hidden) return;
   const events = state.events[state.activeId] || [];
@@ -214,7 +216,7 @@ function renderEvents() {
   for (const event of events) if (!eventNodes.has(event)) {
     const node = document.createElement('li');
     node.className = 'event-item';
-    node.innerHTML = `<details><summary><code>${escapeHtml(event.type)}</code><time>${escapeHtml(event.ts?.slice(11, 19) || '')}</time></summary><pre>${escapeHtml(JSON.stringify(event, null, 2))}</pre></details>`;
+    node.innerHTML = `<details><summary><code>${escapeHtml(event.type)}</code><time>${escapeHtml(event.ts?.slice(11, 19) || '')}</time></summary><pre>${escapeHtml(eventJson(event))}</pre></details>`;
     eventNodes.set(event, node);
     $('#event-list').prepend(node);
   }

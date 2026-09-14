@@ -54,7 +54,7 @@ MiniClaude 的核心设计目标是把一个 agent 拆成清晰的本地系统�
 | Event stream | run、step、tool、LLM token、permission、context compaction 等事件实时推送 |
 | Trace | 默认写入 `~/.mini/traces/daemon.jsonl`，可用 `mini trace` 查看和过滤 |
 | Built-in tools | `read_file`、`write_file`、`list_dir`、`bash`、task 系列、`note_save`、subagent 工具 |
-| 联网工具 | DDGS 搜索、Trafilatura 网页正文提取、按任务隔离的 Playwright MCP 浏览器；详见 [联网能力](docs/NETWORKING.md) |
+| 联网工具 | DeepSeek 官方端点使用原生搜索，其他后端使用 DDGS；另有 Trafilatura 网页正文提取、按任务隔离的 Playwright MCP 浏览器；详见 [联网能力](docs/NETWORKING.md) |
 | Parallel tools | 同一轮的多个工具调用默认并发调度；结果按调用顺序回传，依赖操作需分轮发起 |
 | Permissions | 工具调用支持一次性/持久化审批，策略存储在 `~/.mini/policy.toml` |
 | Memory/context | 读取 `~/.mini/context.md` 与 `.mini/context.md`，session notes 可跨轮注入上下文 |

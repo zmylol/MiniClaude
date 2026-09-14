@@ -29,10 +29,42 @@ test('reconciles mixed server search content without duplicate text or local too
   assert.equal(conversation.messages[2].text, 'Done');
 });
 
+// 功能：暂停续写的搜索结果更新先前步骤卡片，相同调用 ID 在不同运行之间不串线。
+// 设计：交错两个运行的同 ID 搜索，再分别返回成功与失败并重放旧事件，检查原卡片的最终状态。
+test('pairs server search results across steps and isolates identical ids across runs', () => {
+  const conversation = createConversation('a'); conversation.sessionId = 's';
+  const state = { conversations: [conversation], runs: {} };
+  const started = run => ({ type: 'llm.response.completed', session_id: 's', run_id: run, step: 1, text: `Before ${run}`, stop_reason: 'pause_turn', content: [
+    { type: 'text', text: `Before ${run}` },
+    { type: 'server_tool_use', id: 'shared', name: 'web_search', input: { query: `${run} query` } },
+  ] });
+  applyEvent(state, started('a'));
+  applyEvent(state, started('b'));
+  const searches = () => conversation.messages.flatMap(message => message.blocks || []).filter(message => message.kind === 'server_tool');
+  const completed = { type: 'llm.response.completed', session_id: 's', run_id: 'a', step: 2, text: 'After a', content: [
+    { type: 'web_search_tool_result', tool_use_id: 'shared', content: [{ type: 'web_search_result', title: 'A result', url: 'https://example.com/a' }] },
+    { type: 'text', text: 'After a' },
+  ] };
+  applyEvent(state, completed);
+  assert.equal(searches()[0].status, 'success');
+  assert.equal(searches()[0].results[0].title, 'A result');
+  assert.equal(searches()[1].status, 'running');
+  applyEvent(state, { ...completed, run_id: 'b', text: '', content: [
+    { type: 'web_search_tool_result', tool_use_id: 'shared', content: { type: 'web_search_tool_result_error', error_code: 'unavailable' } },
+  ] });
+  applyEvent(state, completed);
+  applyEvent(state, started('a'));
+  assert.equal(searches().length, 2);
+  assert.equal(searches()[0].status, 'success');
+  assert.equal(searches()[1].status, 'failed');
+  assert.equal(searches()[1].error, 'unavailable');
+  assert.equal(conversation.messages.filter(message => message.text === 'After a').length, 1);
+});
+
 // 功能：响应停止原因以可理解的中文呈现，截断正文仍保留。
-// 设计：覆盖四种非正常停止，并检查最终状态和对应提示。
+// 设计：覆盖模型停止与服务端工具不可用，并检查最终状态和对应提示。
 test('explains model stop reasons without removing returned text', () => {
-  for (const [reason, label] of [['max_tokens', '输出达到上限'], ['model_context_window_exceeded', '上下文已满'], ['refusal', '模型拒绝'], ['unexpected_stop_reason', '响应不完整']]) {
+  for (const [reason, label] of [['max_tokens', '输出达到上限'], ['model_context_window_exceeded', '上下文已满'], ['refusal', '模型拒绝'], ['unexpected_stop_reason', '响应不完整'], ['incomplete_response', '响应不完整'], ['server_tool_unavailable', '服务器搜索不可用']]) {
     const conversation = createConversation(reason); conversation.sessionId = 's';
     const state = { conversations: [conversation], runs: {} };
     applyEvent(state, { type: 'llm.response.completed', session_id: 's', run_id: 'r', step: 1, text: 'Partial answer', stop_reason: reason });

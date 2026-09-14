@@ -1,3 +1,5 @@
+import { historyMessages, applyServerToolResult } from './content.js';
+
 // 创建尚未分配 core session 的本地会话。
 export function createConversation(id) {
   return { id, sessionId: null, title: '新对话', pinned: false, messages: [], status: 'idle', mainStatus: 'idle', needsHistorySync: false, draft: '', model: '', selectedModel: '', permissionMode: 'ask', attachments: [], usage: null };
@@ -78,7 +80,19 @@ export function applyEvent(state, event) {
     if (!response) { response = { kind: 'text', role: 'assistant', text: '', runId: event.run_id, step }; messages.push(response); }
     if (!response.responseStatus) {
       if (event.type === 'llm.token') response.text += event.token;
-      else { response.text = event.text || ''; response.responseStatus = event.type === 'llm.response.completed' ? 'completed' : 'failed'; }
+      else {
+        response.text = event.text || '';
+        response.responseStatus = event.type === 'llm.response.completed' ? 'completed' : 'failed';
+        response.stopReason = event.stop_reason || 'end_turn';
+        if (event.type === 'llm.response.completed' && event.content?.length) {
+          response.blocks = historyMessages([{ role: 'assistant', content: event.content }]).filter(message => message.kind !== 'tool');
+          const searches = messages.filter(message => message.runId === event.run_id).flatMap(message => message.blocks || []).filter(message => message.kind === 'server_tool');
+          for (const result of event.content.filter(block => block.type === 'web_search_tool_result')) {
+            const search = searches.findLast(message => message.id === result.tool_use_id);
+            if (search) applyServerToolResult(search, result.content);
+          }
+        }
+      }
     }
   } else if (event.type === 'tool.call_started') {
     messages.push({ kind: 'tool', id: event.tool_use_id, runId: event.run_id, name: event.tool_name, params: event.params, output: '', status: 'running' });
@@ -114,8 +128,9 @@ export function applyEvent(state, event) {
     if (conversation.runId && conversation.runId !== event.run_id) { refreshStatus(conversation); return conversation; }
     conversation.mainStatus = event.status === 'success' || event.reason === 'cancelled' ? 'idle' : 'error';
     refreshStatus(conversation);
+    const reasons = { max_tokens: '输出达到上限', model_context_window_exceeded: '上下文已满', refusal: '模型拒绝', unexpected_stop_reason: '响应不完整', unsupported_stop_reason: '响应不完整', incomplete_response: '响应不完整', invalid_tool_response: '工具响应不完整', server_tool_unavailable: '服务器搜索不可用或权限已变更' };
     const notice = event.reason === 'cancelled' ? '已停止本次任务。可以修改输入后继续。'
-      : event.status !== 'success' ? `运行未完成：${event.reason || event.status}` : null;
+      : event.status !== 'success' ? `运行未完成：${reasons[event.reason] || event.reason || event.status}` : null;
     if (notice && !messages.some(m => m.kind === 'notice' && m.runId === event.run_id && m.source === 'run.finished')) {
       messages.push({ kind: 'notice', runId: event.run_id, source: 'run.finished', text: notice });
     }

@@ -45,6 +45,22 @@ test('renders safe server search cards with explicit errors', () => {
   assert.ok(failed.includes('&lt;error&gt;'));
 });
 
+// 功能：实时事件面板隐藏不透明签名和密文，原始事件对象保持可供持久化的完整内容。
+// 设计：把敏感字段嵌入实际内容块并检查展示 JSON，同时断言源对象没有被删除字段。
+test('event preview omits opaque fields without mutating original content', () => {
+  assert.equal(typeof contentView.eventJson, 'function');
+  const event = { type: 'llm.response.completed', content: [
+    { type: 'thinking', thinking: 'summary', signature: 'SECRET-SIGNATURE' },
+    { type: 'redacted_thinking', data: 'SECRET-REDACTED' },
+    { type: 'web_search_tool_result', content: [{ type: 'web_search_result', title: 'Docs', encrypted_content: 'SECRET-RESULT' }] },
+  ] };
+  const shown = contentView.eventJson(event);
+  assert.ok(!shown.includes('SECRET'));
+  assert.ok(shown.includes('Docs'));
+  assert.equal(event.content[0].signature, 'SECRET-SIGNATURE');
+  assert.equal(event.content[1].data, 'SECRET-REDACTED');
+});
+
 test('renders code and links without allowing executable HTML or protocols', () => {
   const html = markdown('<img src=x onerror=alert(1)>\n[site](https://example.com/?a=1&b=2)\n```js\nconst html = "<script>";\n```');
   assert.ok(html.includes('&lt;img'));

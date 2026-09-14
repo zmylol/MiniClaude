@@ -29,6 +29,11 @@ class TracingProvider:
         self._trace = trace
         self._include_payload = include_payload
 
+    @property
+    # 转发底层端点的服务端搜索能力，避免 trace 包装改变工具路由
+    def server_search_supported(self) -> bool:
+        return getattr(self._inner, "server_search_supported", False) is True
+
     # 记录 CORE→LLM 请求，调用真实 provider，记录 LLM→CORE 响应（含延迟）
     async def chat(
         self,
@@ -73,6 +78,8 @@ class TracingProvider:
                 "stop_reason": result.stop_reason,
                 "text": result.text,
                 "tool_calls": [dataclasses.asdict(tc) for tc in result.tool_calls],
+                "content": result.assistant_content(),
+                "metadata": result.metadata,
                 "usage": dataclasses.asdict(result.usage) if result.usage else {},
                 "latency_ms": latency_ms,
             }

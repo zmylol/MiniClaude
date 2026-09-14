@@ -33,7 +33,7 @@ export function markdown(text) {
   }).join('');
 }
 
-// 将持久化的 API 消息恢复成文本、图像和配对工具卡片。
+// 将持久化的 API 消息恢复成文本、图像和配对工具卡片，不展示不透明模型字段。
 export function historyMessages(messages) {
   const output = [];
   for (const message of messages) {
@@ -46,6 +46,11 @@ export function historyMessages(messages) {
       if (block.type === 'text' && block.text) output.push({ kind: 'text', role: message.role, text: block.text });
       else if (block.type === 'image' && block.source?.type === 'base64' && /^image\/(png|jpeg|webp|gif)$/.test(block.source.media_type)) {
         output.push({ kind: 'image', mediaType: block.source.media_type, data: block.source.data });
+      } else if (block.type === 'server_tool_use') {
+        output.push({ kind: 'server_tool', id: block.id, name: block.name, params: block.input, status: 'running', results: [], error: '' });
+      } else if (block.type === 'web_search_tool_result') {
+        const search = output.findLast(item => item.kind === 'server_tool' && item.id === block.tool_use_id);
+        if (search) applyServerToolResult(search, block.content);
       } else if (block.type === 'tool_use') output.push({ kind: 'tool', id: block.id, name: block.name, params: block.input, status: 'success', output: '' });
       else if (block.type === 'tool_result') {
         const tool = output.findLast(item => item.kind === 'tool' && item.id === block.tool_use_id);
@@ -57,6 +62,34 @@ export function historyMessages(messages) {
     }
   }
   return output;
+}
+
+// 把搜索结果投影到既有卡片，实时续写和历史恢复共用状态与可读字段。
+export function applyServerToolResult(search, content) {
+  const failed = content?.type === 'web_search_tool_result_error';
+  search.status = failed ? 'failed' : 'success';
+  search.error = failed ? content.error_code : '';
+  search.results = Array.isArray(content) ? content.filter(result => result.type === 'web_search_result').map(result => ({ title: result.title, url: result.url })) : [];
+}
+
+// 展示服务端搜索查询和结果，只为普通网页 URL 生成链接并转义所有外部文本。
+export function serverToolHtml(message) {
+  const results = (message.results || []).map(result => {
+    const url = safeUrl(result.url);
+    const title = escapeHtml(result.title || result.url || '搜索结果');
+    return `<li>${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${title}</a><div>${escapeHtml(url)}</div>` : title}</li>`;
+  }).join('');
+  const status = { running: '等待结果', success: '已完成', failed: '失败' }[message.status] || '未完成';
+  return `<details class="tool-card ${message.status === 'failed' ? 'error' : ''}" open><summary>${escapeHtml(message.name)}<span class="tool-status">${status}</span></summary><pre>${escapeHtml(message.params?.query || JSON.stringify(message.params || {}, null, 2))}</pre>${results ? `<ul>${results}</ul>` : ''}${message.error ? `<p>${escapeHtml(message.error)}</p>` : ''}</details>`;
+}
+
+// 事件面板保留可读内容与结构，但隐藏只能原样回传的签名和密文。
+export function eventJson(event) {
+  return JSON.stringify(event, (key, value) => {
+    if (key === 'signature' || key === 'encrypted_content') return undefined;
+    if (value?.type === 'redacted_thinking') return { type: value.type };
+    return value;
+  }, 2);
 }
 
 // 文本附件携带真实内容，文件名不参与提示结构或路径解析。

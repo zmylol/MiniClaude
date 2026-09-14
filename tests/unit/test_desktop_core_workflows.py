@@ -84,7 +84,7 @@ async def test_manual_compaction_uses_current_session_model(
         await manager.compact(session.id)
         context = store.read_messages(session.id)
         assert context[0]["content"] == (model if use_factory else "legacy")
-        assert len(context) == 2
+        assert len(context) == 1
         assert all(message["content"] == "conversation details " * 30
                    for message in await manager.get_history(session.id))
     assert selected == (["first-model", "second-model"] if use_factory else [])

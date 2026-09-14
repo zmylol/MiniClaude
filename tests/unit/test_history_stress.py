@@ -161,7 +161,6 @@ async def test_mixed_compaction_outcomes_keep_all_parallel_results(
     await restarted.send_message(session.id, "NEXT REQUEST")
     assert restarted_provider.inputs[0] == [
         {"role": "user", "content": "LAST SUMMARY"},
-        {"role": "assistant", "content": "Understood, I'll continue from this summary."},
         {"role": "assistant", "content": [{"type": "text", "text": "COMPLETE"}]},
         {"role": "user", "content": "NEXT REQUEST"},
     ]

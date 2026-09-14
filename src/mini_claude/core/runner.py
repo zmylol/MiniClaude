@@ -37,8 +37,8 @@ from mini_claude.core.tools.builtin import (
     WriteFileTool,
 )
 from mini_claude.core.tools.builtin.web_fetch import WebFetchTool
-from mini_claude.core.tools.builtin.web_search import WebSearchTool
 from mini_claude.core.tools.registry import ToolRegistry
+from mini_claude.core.tools.server_search import register_web_search
 from mini_claude.core.trace.provider import TracingProvider
 from mini_claude.core.trace.writer import TraceWriter
 
@@ -104,9 +104,10 @@ class AgentRunner:
             if _ok(t.name):
                 registry.register(t)
         if self._config.network.enabled:
-            for t in [WebSearchTool(), WebFetchTool()]:
-                if _ok(t.name):
-                    registry.register(t)
+            if _ok("web_search"):
+                register_web_search(registry, provider)
+            if _ok("web_fetch"):
+                registry.register(WebFetchTool())
             if browser is not None:
                 for browser_tool in browser.get_tools():
                     if _ok(browser_tool.name):

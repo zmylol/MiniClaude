@@ -83,7 +83,6 @@ class Compactor:
 
         context.messages = [
             {"role": "user", "content": result.summary_text},
-            {"role": "assistant", "content": "Understood, I'll continue from this summary."},
         ]
         context.summary_messages = deepcopy(context.messages)
         context.summary_position = context.history_position + len(context.new_messages)
@@ -140,6 +139,10 @@ class Compactor:
             logger.exception("compactor: LLM call failed, skipping compaction")
             return None
 
+        if response.stop_reason not in {"end_turn", "stop_sequence"}:
+            logger.warning("compactor: unfinished summary (%s), skipping", response.stop_reason)
+            return None
+
         summary_text = response.text.strip()
         if not summary_text:
             logger.warning("compactor: LLM returned empty summary, skipping compaction")
@@ -177,7 +180,7 @@ def _messages_to_text(messages: list[dict[str, Any]]) -> str:
                 btype = block.get("type", "")
                 if btype == "text":
                     blocks.append(block.get("text", ""))
-                elif btype == "tool_use":
+                elif btype in {"tool_use", "server_tool_use"}:
                     blocks.append(
                         f"<tool_call name={block.get('name')} id={block.get('id')}>\n"
                         f"{block.get('input', {})}\n</tool_call>"
@@ -186,6 +189,19 @@ def _messages_to_text(messages: list[dict[str, Any]]) -> str:
                     blocks.append(
                         f"<tool_result id={block.get('tool_use_id')}>\n"
                         f"{block.get('content', '')}\n</tool_result>"
+                    )
+                elif btype == "web_search_tool_result":
+                    results = block.get("content", [])
+                    if isinstance(results, list):
+                        # 摘要只读取可见来源信息，加密回传数据留在原始历史中
+                        results = [
+                            {key: value for key, value in result.items()
+                             if key != "encrypted_content"}
+                            for result in results if isinstance(result, dict)
+                        ]
+                    blocks.append(
+                        f"<web_search_result id={block.get('tool_use_id')}>\n"
+                        f"{results}\n</web_search_result>"
                     )
             parts.append(f"[{role}]\n" + "\n".join(blocks))
     return "\n\n".join(parts)

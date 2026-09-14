@@ -82,6 +82,8 @@ async def test_tui_renders_search_content_and_replays_once(
     ("model_context_window_exceeded", "上下文已满"),
     ("refusal", "模型拒绝"),
     ("unexpected_stop_reason", "响应不完整"),
+    ("incomplete_response", "响应不完整"),
+    ("server_tool_unavailable", "服务器搜索不可用"),
 ])
 def test_tui_explains_response_stop_reason(reason: str, label: str) -> None:
     app = MiniTuiApp("127.0.0.1", 9999)
@@ -90,3 +92,51 @@ def test_tui_explains_response_stop_reason(reason: str, label: str) -> None:
     app._append = appended.append  # type: ignore[method-assign, assignment]
     app._handle_event({"type": "run.finished", "session_id": "s", "run_id": "r", "status": "failed", "reason": reason})
     assert label in str(appended[-1].content)
+
+
+# 功能：续写返回搜索结果时更新旧步骤卡片，运行之间复用调用 ID 仍保持独立。
+# 设计：真实 Textual DOM 接收两个交错运行和迟到结果，再重放旧完成事件检查幂等。
+async def test_tui_pairs_search_results_across_steps_without_crossing_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(MiniTuiApp, "on_mount", lambda self: None)
+    app = MiniTuiApp("127.0.0.1", 9999)
+    app._session_id = "s"
+    starts = [{
+        "type": "llm.response.completed", "session_id": "s", "run_id": run,
+        "step": 1, "text": f"Before {run}", "stop_reason": "pause_turn", "content": [
+            {"type": "text", "text": f"Before {run}"},
+            {"type": "server_tool_use", "id": "shared", "name": "web_search", "input": {"query": f"{run} query"}},
+        ],
+    } for run in ("a", "b")]
+    result = {
+        "type": "llm.response.completed", "session_id": "s", "run_id": "a", "step": 2,
+        "text": "After a", "content": [
+            {"type": "web_search_tool_result", "tool_use_id": "shared", "content": [{"type": "web_search_result", "title": "A result", "url": "https://example.com/a"}]},
+            {"type": "text", "text": "After a"},
+        ],
+    }
+    async with app.run_test() as pilot:
+        for event in starts:
+            app._handle_event(event)
+        app._handle_event(result)
+        await pilot.pause()
+        blocks = list(app.query(LLMStreamBlock))
+        rendered = []
+        for block in blocks:
+            output = StringIO()
+            Console(file=output, force_terminal=False, width=120).print(block.content)
+            rendered.append(output.getvalue())
+        assert "A result" in rendered[0] and "已完成" in rendered[0]
+        assert "等待结果" in rendered[1] and "A result" not in rendered[1]
+        app._handle_event({**result, "run_id": "b", "text": "", "content": [
+            {"type": "web_search_tool_result", "tool_use_id": "shared", "content": {"type": "web_search_tool_result_error", "error_code": "unavailable"}},
+        ]})
+        app._handle_event(result)
+        app._handle_event(starts[0])
+        await pilot.pause()
+        output = StringIO()
+        Console(file=output, force_terminal=False, width=120).print(blocks[1].content)
+        assert "失败" in output.getvalue() and "unavailable" in output.getvalue()
+        assert len(app.query(LLMStreamBlock)) == 4
+        assert not list(app.query(ToolCallBlock))
