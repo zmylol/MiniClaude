@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,6 +85,8 @@ class Compactor:
             {"role": "user", "content": result.summary_text},
             {"role": "assistant", "content": "Understood, I'll continue from this summary."},
         ]
+        context.summary_messages = deepcopy(context.messages)
+        context.summary_position = context.history_position + len(context.new_messages)
         self._write_summary(result.summary_text)
         await self._bus.publish(
             ContextCompactedEvent(

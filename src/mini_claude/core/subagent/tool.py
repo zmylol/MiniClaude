@@ -115,6 +115,10 @@ class SpawnAgentTool(BaseTool):
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = SpawnAgentParams.model_validate(params)
 
+        if not self._task_registry.accepting:
+            return ToolResult(content="Session is stopping; cannot spawn subagents.",
+                              is_error=True, error_type="runtime_error")
+
         if self._depth >= 2:
             return ToolResult(
                 content="Subagent nesting limit (2) reached; cannot spawn further subagents.",
@@ -135,6 +139,11 @@ class SpawnAgentTool(BaseTool):
         )
 
         child_bus = EventBus()
+        self._parent_bus.register_run(
+            child_run_id, self._session_id or None, self._parent_run_id,
+        )
+        scope = self._parent_bus.run_scope(child_run_id)
+        child_bus.register_run(child_run_id, **scope)
 
         # 将子 bus 所有事件桥接到父 bus，TUI 据此渲染嵌套进度
         async def _bridge(event: BaseModel) -> None:
@@ -160,22 +169,18 @@ class SpawnAgentTool(BaseTool):
             session_id=self._session_id,
         )
 
-        await self._parent_bus.publish(
-            SubagentStartedEvent(
-                run_id=child_run_id,
-                parent_run_id=self._parent_run_id,
-                description=p.description,
-                ts=_now(),
-            )
-        )
-
         child_run_path = self._runs_dir / child_run_id
         child_run_path.mkdir(parents=True, exist_ok=True)
+
+        if not self._task_registry.accepting:
+            return ToolResult(content="Session is stopping; cannot spawn subagents.",
+                              is_error=True, error_type="runtime_error")
 
         if p.run_in_background:
             task: asyncio.Task[None] = asyncio.create_task(
                 self._run_background(
                     child_loop, child_context, child_bus, child_run_path, child_run_id, browser,
+                    description=p.description,
                 )
             )
             self._task_registry.register(child_run_id, task, child_context)
@@ -188,6 +193,7 @@ class SpawnAgentTool(BaseTool):
 
         await self._run_background(
             child_loop, child_context, child_bus, child_run_path, child_run_id, browser,
+            description=p.description,
         )
 
         if child_context.status == "success":
@@ -212,25 +218,39 @@ class SpawnAgentTool(BaseTool):
         run_path: Path,
         run_id: str,
         browser: BrowserSession | None = None,
+        *,
+        description: str = "",
     ) -> None:
-        try:
-            async with EventWriter(run_path / "events.jsonl") as writer:
-                writer.subscribe(bus)
+        async with EventWriter(run_path / "events.jsonl", run_id=run_id) as writer:
+            writer.subscribe(bus)
+            await bus.publish(SubagentStartedEvent(
+                run_id=run_id, parent_run_id=self._parent_run_id,
+                description=description, ts=_now(),
+            ))
+            try:
                 await loop.run(context)
-        except asyncio.CancelledError:
-            context.mark_failed("cancelled")
-            raise
-        finally:
-            if browser is not None:
-                await browser.close()
-            await self._parent_bus.publish(
-                SubagentFinishedEvent(
-                    run_id=run_id,
-                    parent_run_id=self._parent_run_id,
-                    status=context.status,
-                    ts=_now(),
-                )
-            )
+            except asyncio.CancelledError:
+                context.mark_failed("cancelled")
+                raise
+            except Exception:
+                context.mark_failed("runtime_error")
+                raise
+            finally:
+                try:
+                    if browser is not None:
+                        await browser.close()
+                except Exception:
+                    context.mark_failed("cleanup_error")
+                    raise
+                finally:
+                    await bus.publish(
+                        SubagentFinishedEvent(
+                            run_id=run_id,
+                            parent_run_id=self._parent_run_id,
+                            status=context.status,
+                            ts=_now(),
+                        )
+                    )
 
     # 构造子 registry；基于角色配置过滤工具，深度允许时注册嵌套 SpawnAgentTool
     def _build_child_registry(
@@ -308,6 +328,7 @@ class AgentResultParams(BaseModel):
 # 查询后台 subagent 的执行状态和最终结果
 class AgentResultTool(BaseTool):
     name = "agent_result"
+    retry_on_error = False
     description = (
         "Retrieve the result of a background sub-agent previously started with spawn_agent. "
         "Returns 'still running' if the sub-agent has not yet completed."
@@ -331,25 +352,24 @@ class AgentResultTool(BaseTool):
     # 查询指定 run_id 的后台任务状态，返回结果或错误
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = AgentResultParams.model_validate(params)
-        entry = self._task_registry.get(p.run_id)
+        entry = self._task_registry.result(p.run_id)
         if entry is None:
             return ToolResult(
                 content=f"Unknown run_id: {p.run_id}. Only background subagents can be queried.",
                 is_error=True,
                 error_type="runtime_error",
             )
-        task, context = entry
-        if not task.done():
+        if entry.status == "running":
             return ToolResult(content="still running")
-        if task.cancelled():
+        if entry.status == "cancelled":
             return ToolResult(
                 content="Subagent was cancelled.", is_error=True, error_type="runtime_error"
             )
-        exc = task.exception()
-        if exc is not None:
+        if entry.status != "success":
             return ToolResult(
-                content=f"Subagent raised an exception: {exc}",
+                content=f"Subagent failed (status={entry.status}, reason={entry.reason})."
+                        + (f"\n{entry.result}" if entry.result else ""),
                 is_error=True,
                 error_type="runtime_error",
             )
-        return ToolResult(content=context.result or "Subagent completed with no text result.")
+        return ToolResult(content=entry.result or "Subagent completed with no text result.")

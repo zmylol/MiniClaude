@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from mini_claude.core.tools.base import BaseTool, ToolResult
+from mini_claude.core.tools.paths import resolve_workspace_path
 
 _MAX_BYTES = 512 * 1024  # 512 KB
 
@@ -15,6 +16,7 @@ class ReadFileParams(BaseModel):
 
 
 class ReadFileTool(BaseTool):
+    retry_on_error = True
     params_model = ReadFileParams
     name = "read_file"
     description = (
@@ -33,14 +35,11 @@ class ReadFileTool(BaseTool):
         "required": ["path"],
     }
 
-    # 读取文件内容；超 512KB 截断；禁止 .. 路径遍历
+    # 读取工作区内文件内容，解析链接并限制相对路径，超过 512KB 时截断
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         path_str = ReadFileParams.model_validate(params).path
 
-        if ".." in Path(path_str).parts:
-            raise PermissionError(f"path traversal not allowed: {path_str}")
-
-        path = Path(path_str)
+        path = resolve_workspace_path(Path(path_str))
         raw = path.read_bytes()  # raises FileNotFoundError if absent
         truncated = len(raw) > _MAX_BYTES
         text = raw[:_MAX_BYTES].decode("utf-8", errors="replace")

@@ -46,8 +46,8 @@ class PermissionManager:
         timeout_s: float = 60.0,
     ) -> None:
         self._policies: dict[str, ToolPolicy] = policies or dict(DEFAULT_POLICIES)
-        # tool_use_id → pending Future + metadata
-        self._pending: dict[str, _PendingRequest] = {}
+        # (run_id, tool_use_id) → pending Future + metadata
+        self._pending: dict[tuple[str | None, str], _PendingRequest] = {}
         # (session_id, tool_name) → "allow" | "deny"（session 内存，重启丢失）
         self._session_always: dict[tuple[str, str], str] = {}
         # tool_name → "allow" | "deny"（持久化，从 policy_file 加载）
@@ -119,7 +119,9 @@ class PermissionManager:
             # Tier 4: persistent always（跨 session）
             if tool_name in self._persistent_always:
                 cached = self._persistent_always[tool_name]
-                logger.debug("permission: persistent cache hit tool=%s decision=%s", tool_name, cached)
+                logger.debug(
+                    "permission: persistent cache hit tool=%s decision=%s", tool_name, cached,
+                )
                 return cached == "allow", f"auto_{cached}"
 
             # Tier 5: allow_patterns（bash only）
@@ -139,7 +141,10 @@ class PermissionManager:
         # ASK 路径（来自 OUTSIDE_CWD 强制 ASK，或 default=ASK）
         loop = asyncio.get_event_loop()
         future: asyncio.Future[str] = loop.create_future()
-        self._pending[tool_use_id] = _PendingRequest(
+        key = (run_id, tool_use_id)
+        if key in self._pending:
+            raise ValueError("duplicate pending tool call in run")
+        self._pending[key] = _PendingRequest(
             future=future,
             session_id=session_id,
             tool_name=tool_name,
@@ -165,19 +170,23 @@ class PermissionManager:
                 raw = await asyncio.wait_for(future, timeout=self._timeout_s)
             else:
                 raw = await future
-        except asyncio.TimeoutError:
-            self._pending.pop(tool_use_id, None)
+        except TimeoutError:
+            self._pending.pop(key, None)
             logger.info("permission: timeout tool_use_id=%s tool=%s", tool_use_id, tool_name)
             return False, "timeout"
         finally:
-            self._pending.pop(tool_use_id, None)
+            self._pending.pop(key, None)
 
         allowed = self._apply_response(raw, session_id, tool_name)
         return allowed, raw
 
     # 处理客户端返回的审批决策，resolve 对应 Future
-    def respond(self, tool_use_id: str, decision: str) -> None:
-        req = self._pending.pop(tool_use_id, None)
+    def respond(self, tool_use_id: str, decision: str, *, run_id: str | None = None) -> None:
+        matches = [key for key in self._pending if key[1] == tool_use_id
+                   and (run_id is None or key[0] == run_id)]
+        if len(matches) > 1:
+            raise ValueError("ambiguous tool_use_id; provide run_id")
+        req = self._pending.get(matches[0]) if matches else None
         if req is None:
             logger.warning("permission.respond: unknown tool_use_id=%s", tool_use_id)
             return
@@ -199,7 +208,9 @@ class PermissionManager:
                     save_policy_file(self._persistent_always, self._policy_file)
                     logger.info("permission: policy.toml written path=%s", self._policy_file)
                 except Exception:
-                    logger.exception("permission: failed to write policy.toml path=%s", self._policy_file)
+                    logger.exception(
+                        "permission: failed to write policy.toml path=%s", self._policy_file,
+                    )
             else:
                 logger.warning("permission: policy_file is None, skipping persistence")
         elif decision == "always_deny":
@@ -214,7 +225,9 @@ class PermissionManager:
                     save_policy_file(self._persistent_always, self._policy_file)
                     logger.info("permission: policy.toml written path=%s", self._policy_file)
                 except Exception:
-                    logger.exception("permission: failed to write policy.toml path=%s", self._policy_file)
+                    logger.exception(
+                        "permission: failed to write policy.toml path=%s", self._policy_file,
+                    )
             else:
                 logger.warning("permission: policy_file is None, skipping persistence")
         return allow

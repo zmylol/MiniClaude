@@ -154,17 +154,15 @@ class AgentRunner:
 
     # 检查此运行派生的后台子代理是否仍在执行
     def has_background_runs(self) -> bool:
-        return any(not task.done() for task, _ in self._task_registry.all())
+        return self._task_registry.is_running()
+
+    # 将本轮工具绑定到会话共享的后台任务注册表
+    def set_task_registry(self, registry: BackgroundTaskRegistry) -> None:
+        self._task_registry = registry
 
     # 取消并等待所有后台子代理，确保其工具和事件写入器完成清理
     async def cancel_background(self) -> bool:
-        tasks = [task for task, _ in self._task_registry.all() if not task.done()]
-        for task in tasks:
-            if not task.cancelling():
-                task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        return bool(tasks)
+        return await self._task_registry.cancel()
 
     # 执行 agent run 并返回 RunOutcome（含最终文字结果）
     async def run_and_capture(
@@ -200,6 +198,7 @@ class AgentRunner:
         task_manager = TaskManager(run_path / ".tasks")
 
         bus = self._bus if self._bus is not None else EventBus()
+        bus.register_run(run_id, session.id if session else None)
         for h in self._extra_handlers:
             bus.subscribe(h)
 
@@ -213,9 +212,29 @@ class AgentRunner:
             project_context=project_ctx,
             system_prompt_override=system_prompt_override,
         )
-        prefill_len = len(history)
+        if session is not None and store is not None:
+            context.history_position = store.history_position(session.id)
+            committed = 0
 
-        async with EventWriter(run_path / "events.jsonl") as writer:
+            # 每次只追加尚未提交的原始消息，成功后再发布摘要覆盖位置
+            def persist(current: ExecutionContext) -> None:
+                nonlocal committed
+                assert session is not None and store is not None
+                while committed < len(current.new_messages):
+                    message = current.new_messages[committed]
+                    store.append_message(
+                        session.id, message["role"], message["content"], run_id=run_id,
+                    )
+                    committed += 1
+                if current.summary_messages is not None:
+                    store.write_compacted(
+                        session.id, current.summary_messages, current.summary_position,
+                    )
+                    current.summary_messages = None
+
+            context.persist = persist
+
+        async with EventWriter(run_path / "events.jsonl", run_id=run_id) as writer:
             writer.subscribe(bus)
             await bus.publish(
                 RunStartedEvent(
@@ -284,30 +303,16 @@ class AgentRunner:
                     self._permission_manager.cancel_session(session.id, reason="user_cancelled")
                 if not context.is_done():
                     context.mark_failed("cancelled")
-            except Exception:
+            except Exception as exc:
                 logging.getLogger(__name__).exception(
                     "agent run failed run_id=%s step=%d", run_id, context.step
                 )
-                if not context.is_done():
-                    context.mark_failed("llm_error")
-            finally:
-                if browser is not None:
-                    await browser.close()
-
-            await bus.publish(
-                RunFinishedEvent(
-                    run_id=run_id,
-                    status=context.status,
-                    reason=context.reason,
-                    steps=context.step,
-                    ts=_now(),
+                context.mark_failed(
+                    "persistence_error" if isinstance(exc, OSError) else "llm_error",
                 )
-            )
-
-        if session is not None and store is not None:
-            if cancelled:
+            finally:
                 pending: set[str] = set()
-                for message in context.messages:
+                for message in context.new_messages:
                     blocks = message.get("content")
                     if not isinstance(blocks, list):
                         continue
@@ -318,9 +323,29 @@ class AgentRunner:
                             pending.discard(str(block["tool_use_id"]))
                 for tool_use_id in pending:
                     context.add_tool_result(
-                        tool_use_id, "Tool execution cancelled by the user.", is_error=True,
+                        tool_use_id, "Tool execution interrupted.", is_error=True,
                     )
-            store.append_messages(session.id, context.messages[prefill_len:], run_id=run_id)
+                try:
+                    context.flush()
+                except Exception:
+                    context.mark_failed("persistence_error")
+                    logging.getLogger(__name__).exception("history persistence failed")
+                if browser is not None:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        logging.getLogger(__name__).exception("browser cleanup failed")
+                        context.mark_failed("cleanup_error")
+
+            await bus.publish(
+                RunFinishedEvent(
+                    run_id=run_id,
+                    status=context.status,
+                    reason=context.reason,
+                    steps=context.step,
+                    ts=_now(),
+                )
+            )
 
         if cancelled:
             raise asyncio.CancelledError()

@@ -434,14 +434,14 @@ async def test_delete_holds_session_lock_during_background_cleanup(tmp_path: Pat
     cleaning = asyncio.Event()
     release = asyncio.Event()
 
-    class BackgroundRunner:
+    class BackgroundRegistry:
         # 暂停后台清理以暴露删除与发送消息之间的并发窗口
-        async def cancel_background(self) -> bool:
+        async def cancel(self, *, close: bool = False) -> bool:
             cleaning.set()
             await release.wait()
             return True
 
-    manager._runners[session.id] = [BackgroundRunner()]
+    manager._background[session.id] = BackgroundRegistry()
     deleting = asyncio.create_task(manager.delete(session.id))
     await asyncio.wait_for(cleaning.wait(), 3)
     with pytest.raises(HandlerError, match="busy"):

@@ -61,7 +61,7 @@ class AgentRunResult(BaseModel):
 class EventSubscribeCommand(BaseModel):
     type: Literal["event.subscribe"] = "event.subscribe"
     topics: list[str]          # fnmatch 模式，如 ["step.*", "tool.*"]
-    scope: str = "global"      # "global" | "run:<run_id>"
+    scope: str = "global"  # "global" | "run:<id>" | "tree:<id>" | "session:<id>"
     replay_from_run: str | None = None  # 设置则先从 events.jsonl 回放历史再接实时流
 
 
@@ -235,6 +235,7 @@ class SessionCloseResult(BaseModel):
 
 
 class PermissionRespondCommand(BaseModel):
+    run_id: str | None = None
     type: Literal["permission.respond"] = "permission.respond"
     tool_use_id: str
     # "allow_once" | "always_allow" | "deny_once" | "always_deny"

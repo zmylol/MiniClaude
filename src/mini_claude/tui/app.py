@@ -6,8 +6,6 @@ import logging
 import time
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from rich.markdown import Markdown
 from textual import events
 from textual.app import App, ComposeResult
@@ -21,6 +19,8 @@ from textual.widgets import Label, Static, TextArea
 from mini_claude.core.config import MiniConfig
 from mini_claude.core.skills.loader import SkillLoader
 from mini_claude.core.transport.socket_client import IpcError, SocketClient
+
+log = logging.getLogger(__name__)
 
 
 def _preview(s: str, n: int) -> str:
@@ -66,6 +66,13 @@ class LLMStreamBlock(Static):
             return
         self._text += token
         self.update(self._text)
+
+    # 用完整响应替换临时流式内容，空响应也清除旧文本
+    def replace_text(self, text: str) -> None:
+        self._text = text
+        self._finalized = False
+        self.update(text)
+        self.finalize_markdown()
 
     # 将累积文本渲染为 Markdown，供流式块结束后显示
     def finalize_markdown(self) -> None:
@@ -178,9 +185,10 @@ class PermissionSelect(Static):
             super().__init__()
 
     # 初始化控件，存储工具 ID（用于 IPC 回复）
-    def __init__(self, tool_use_id: str) -> None:
+    def __init__(self, tool_use_id: str, run_id: str = "") -> None:
         super().__init__("")
         self._tool_use_id = tool_use_id
+        self._run_id = run_id
         self._cursor = 0
 
     def on_mount(self) -> None:
@@ -204,7 +212,10 @@ class PermissionSelect(Static):
 
     # 焦点到达时记录，用于确认 focus() 是否真正生效
     def on_focus(self, event: events.Focus) -> None:
-        log.debug("PermissionSelect.on_focus  has_focus=%s  app.focused=%r", self.has_focus, self.app.focused)
+        log.debug(
+            "PermissionSelect.on_focus  has_focus=%s  app.focused=%r",
+            self.has_focus, self.app.focused,
+        )
 
     # 焦点离开时记录，用于追踪是否被其他控件抢走焦点
     def on_blur(self, event: events.Blur) -> None:
@@ -517,14 +528,23 @@ class MiniTuiApp(App[None]):
         self._replay_run_id = replay_run_id
         self._client: SocketClient | None = None
         self._current_llm: LLMStreamBlock | None = None
-        self._pending_tool_blocks: dict[str, ToolCallBlock] = {}
-        self._pending_permission_blocks: dict[str, PermissionBlock] = {}
+        self._pending_tool_blocks: dict[tuple[str, str], ToolCallBlock] = {}
+        self._pending_permission_blocks: dict[tuple[str, str], PermissionBlock] = {}
         self._session_id: str | None = None
         self._busy = False
         self._last_context_pct: float = 0.0
         self._slash_items: list[tuple[str, str]] = []
         self._subagent_run_ids: dict[str, str] = {}  # child run_id -> description
         self._subagent_start_times: dict[str, float] = {}  # child run_id -> start time
+        self._run_sessions: dict[str, str] = {}
+        self._run_parents: dict[str, str] = {}
+        self._replay_runs: set[str] = {replay_run_id} if replay_run_id else set()
+        self._active_run_id: str | None = None
+        self._run_steps: dict[str, int] = {}
+        self._response_blocks: dict[tuple[str, int], LLMStreamBlock] = {}
+        self._settled_responses: set[tuple[str, int]] = set()
+        self._resolved_permissions: set[tuple[str, str]] = set()
+        self._submitting_permissions: set[tuple[str, str]] = set()
 
     def compose(self) -> ComposeResult:
         yield Label("[bold]MiniClaude[/bold]  [dim]connecting...[/dim]", id="header")
@@ -682,33 +702,82 @@ class MiniTuiApp(App[None]):
             self._update_header("ready")
             self._append(Static(f"[red]send error: {e}[/red]", classes="log-line"))
 
-    # 处理内联审批控件的用户决策：发送 IPC 响应并恢复输入框
+    # 发送审批并在服务端确认后收起控件，失败时保留可重试状态和错误提示
     async def on_permission_select_decided(self, msg: PermissionSelect.Decided) -> None:
         tool_use_id = msg.tool_use_id
         decision = msg.decision
-        log.info("permission decided tool_use_id=%s decision=%s", tool_use_id, decision)
+        key = (msg.widget._run_id, tool_use_id)
+        if key not in self._pending_permission_blocks:
+            return
+        if key in self._submitting_permissions:
+            return
+        self._submitting_permissions.add(key)
+        msg.widget.disabled = True
         try:
-            msg.widget.remove()
-            perm_block = self._pending_permission_blocks.pop(tool_use_id, None)
-            if perm_block is not None:
-                perm_block._resolve(decision)
-            if self._client is not None:
-                try:
-                    await self._client.send_command(
-                        "permission.respond",
-                        {"tool_use_id": tool_use_id, "decision": decision},
-                    )
-                except (IpcError, RuntimeError, OSError):
-                    pass
-            if not self._pending_permission_blocks:
-                p = self._prompt()
-                if p is not None:
-                    p.disabled = False
-                    p.read_only = False
-                    p.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
-                    p.focus()
-        except Exception:
-            log.exception("on_permission_select_decided failed tool_use_id=%s", tool_use_id)
+            if self._client is None:
+                raise RuntimeError("core disconnected")
+            await self._client.send_command(
+                "permission.respond",
+                {"tool_use_id": tool_use_id, "decision": decision, "run_id": key[0] or None},
+            )
+        except (IpcError, RuntimeError, OSError) as exc:
+            self._submitting_permissions.discard(key)
+            msg.widget.disabled = False
+            self._append(Static(f"[red]approval failed: {exc}[/red]", classes="log-line"))
+
+    # 用统一工具调用 ID 幂等清理批准或拒绝状态，输入仍受主运行及剩余审批控制
+    def _settle_permission(self, key: tuple[str, str], decision: str) -> None:
+        self._resolved_permissions.add(key)
+        self._submitting_permissions.discard(key)
+        block = self._pending_permission_blocks.pop(key, None)
+        if block is not None:
+            block._resolve(decision)
+        for select in self.query(PermissionSelect):
+            if (select._run_id, select._tool_use_id) == key:
+                select.remove()
+        self._refresh_prompt()
+
+    # 根据主运行和待审批状态更新输入，不将单次审批结束误当成整轮完成
+    def _refresh_prompt(self) -> None:
+        prompt = self._prompt()
+        if prompt is None:
+            return
+        pending = bool(self._pending_permission_blocks)
+        prompt.disabled = self._busy or pending
+        prompt.read_only = False
+        prompt.border_title = (
+            "permission required" if pending else "agent is working..." if self._busy else
+            "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
+        )
+        if not prompt.disabled:
+            prompt.focus()
+
+    # 在渲染前确定会话与父子运行归属，未知事件不能落入当前界面
+    def _owns_event(self, event: dict[str, Any]) -> bool:
+        run_id = str(event.get("run_id") or "")
+        session_id = str(event.get("session_id") or "")
+        parent = str(event.get("parent_run_id") or self._run_parents.get(run_id, ""))
+        root = str(event.get("root_run_id") or "")
+        replay = self._replay_run_id
+        owner: str | None
+        if replay and (
+            run_id in self._replay_runs or root == replay or parent in self._replay_runs
+        ):
+            owner = session_id or self._run_sessions.get(parent, "replay")
+            if run_id:
+                self._replay_runs.add(run_id)
+        else:
+            if replay:
+                return False
+            owner = session_id or self._run_sessions.get(run_id) or self._run_sessions.get(parent)
+            if not self._session_id or owner != self._session_id:
+                return False
+        if run_id:
+            assert owner is not None
+            self._run_sessions[run_id] = owner
+            if parent or (root and root != run_id):
+                self._run_parents[run_id] = parent or root
+        return True
 
     # 向日志视图追加一个 widget 并滚动到底部
     def _append(self, widget: Widget) -> None:
@@ -802,6 +871,7 @@ class MiniTuiApp(App[None]):
                         "step.*",
                         "tool.*",
                         "llm.token",
+                        "llm.response.*",
                         "llm.usage",
                         "log.*",
                         "permission.*",
@@ -832,6 +902,8 @@ class MiniTuiApp(App[None]):
                     loop_task.cancel()
                 self._client = None
                 self._session_id = None
+                for permission_key in list(self._pending_permission_blocks):
+                    self._settle_permission(permission_key, "disconnected")
                 prompt = self._prompt()
                 if prompt is not None:
                     prompt.disabled = True
@@ -852,31 +924,48 @@ class MiniTuiApp(App[None]):
 
     # 实际的事件路由逻辑
     def _handle_event_inner(self, event: dict[str, Any]) -> None:
+        if not self._owns_event(event):
+            return
         t = event.get("type", "")
+        run_id = str(event.get("run_id") or "")
+        child = run_id in self._run_parents
 
-        if t == "llm.token":
-            token = event.get("token", "")
-            if self._current_llm is None:
-                llm_block = LLMStreamBlock()
-                self._append(llm_block)
-                self._current_llm = llm_block
-            self._current_llm.append_token(token)
+        if t in {"llm.token", "llm.response.completed", "llm.response.failed"}:
+            key = (run_id, int(event.get("step") or self._run_steps.get(run_id, 0)))
+            if key in self._settled_responses:
+                return
+            block = self._response_blocks.get(key)
+            if block is None:
+                block = LLMStreamBlock()
+                if child:
+                    block.styles.padding = (0, 2, 0, 6)
+                self._response_blocks[key] = block
+                self._append(block)
+            if t == "llm.token":
+                block._finalized = False
+                block.append_token(str(event.get("token", "")))
+                self._current_llm = block
+            else:
+                block.replace_text(str(event.get("text", "")))
+                self._settled_responses.add(key)
+                if self._current_llm is block:
+                    self._current_llm = None
             return
 
         self._break_llm()
 
         if t == "session.waiting_for_input":
+            last_run = event.get("last_run_id")
+            if last_run and self._active_run_id and last_run != self._active_run_id:
+                return
             self._busy = False
-            prompt = self._prompt()
-            if prompt is not None:
-                prompt.disabled = False
-                prompt.read_only = False
-                prompt.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
-                prompt.focus()
+            self._refresh_prompt()
             self._update_header("ready")
 
         elif t == "session.closed":
             self._busy = False
+            for tool_id in list(self._pending_permission_blocks):
+                self._settle_permission(tool_id, "expired")
             prompt = self._prompt()
             if prompt is not None:
                 prompt.disabled = True
@@ -886,6 +975,10 @@ class MiniTuiApp(App[None]):
 
         elif t == "run.started":
             run_id = event.get("run_id", "")
+            if not child:
+                self._active_run_id = run_id
+                self._busy = True
+                self._refresh_prompt()
             goal = event.get("goal", "")
             self._append(Static(
                 f"[dim]run[/dim]  [cyan]{run_id}[/cyan]  [dim]{_preview(goal, 96)}[/dim]",
@@ -933,7 +1026,8 @@ class MiniTuiApp(App[None]):
 
         elif t == "step.started":
             run_id = event.get("run_id", "")
-            if run_id in self._subagent_run_ids:
+            self._run_steps[run_id] = int(event.get("step") or 0)
+            if child:
                 return
             step = event.get("step", "")
             self._append(Static(
@@ -947,28 +1041,35 @@ class MiniTuiApp(App[None]):
             params = event.get("params") or {}
             run_id = event.get("run_id", "")
             tc_block = ToolCallBlock(tool_name, params)
-            if run_id in self._subagent_run_ids:
+            if child:
                 tc_block.styles.padding = (0, 2, 0, 6)
-            self._pending_tool_blocks[tool_use_id] = tc_block
+            self._pending_tool_blocks[(run_id, tool_use_id)] = tc_block
             self._append(tc_block)
 
         elif t == "tool.call_finished":
             tool_use_id = str(event.get("tool_use_id", ""))
             elapsed_ms = int(event.get("elapsed_ms") or 0)
             output = str(event.get("output") or "")
-            if tool_use_id in self._pending_tool_blocks:
-                tc_done = self._pending_tool_blocks.pop(tool_use_id)
+            if (run_id, tool_use_id) in self._pending_tool_blocks:
+                tc_done = self._pending_tool_blocks.pop((run_id, tool_use_id))
                 tc_done.set_result(output, elapsed_ms)
 
         elif t == "tool.call_failed":
             tool_use_id = str(event.get("tool_use_id", ""))
             elapsed_ms = int(event.get("elapsed_ms") or 0)
             error_msg = str(event.get("error_message") or "")
-            if tool_use_id in self._pending_tool_blocks:
-                tc_done = self._pending_tool_blocks.pop(tool_use_id)
+            if (run_id, tool_use_id) in self._pending_tool_blocks:
+                tc_done = self._pending_tool_blocks.pop((run_id, tool_use_id))
                 tc_done.set_result(error_msg, elapsed_ms, is_error=True)
 
         elif t == "run.finished":
+            for permission_key in list(self._pending_permission_blocks):
+                if permission_key[0] == run_id:
+                    self._settle_permission(permission_key, "expired")
+            if child or (self._active_run_id and run_id != self._active_run_id):
+                return
+            self._busy = False
+            self._refresh_prompt()
             status = event.get("status", "")
             steps = event.get("steps", 0)
             reason = event.get("reason") or ""
@@ -986,7 +1087,7 @@ class MiniTuiApp(App[None]):
 
         elif t == "llm.usage":
             run_id = event.get("run_id", "")
-            if run_id in self._subagent_run_ids:
+            if child:
                 return
             pct = float(event.get("context_pct") or 0.0)
             self._last_context_pct = pct
@@ -1003,7 +1104,8 @@ class MiniTuiApp(App[None]):
         elif t == "context.compacted":
             orig = event.get("original_tokens", 0)
             summary = event.get("summary_tokens", 0)
-            self._last_context_pct = 0.0
+            if not child:
+                self._last_context_pct = 0.0
             self._append(Static(
                 f"[bold cyan]⚡ Context compacted[/bold cyan]"
                 f"  [dim]original≈{orig} tokens → summary={summary} tokens[/dim]",
@@ -1012,6 +1114,10 @@ class MiniTuiApp(App[None]):
 
         elif t == "permission.requested":
             tool_use_id = str(event.get("tool_use_id", ""))
+            permission_key = (run_id, tool_use_id)
+            if (permission_key in self._pending_permission_blocks
+                    or permission_key in self._resolved_permissions):
+                return
             tool_name = str(event.get("tool_name", ""))
             param_preview = str(event.get("param_preview", ""))
             try:
@@ -1023,37 +1129,23 @@ class MiniTuiApp(App[None]):
                 tool_name, tool_use_id, _focused_repr,
             )
             perm_block = PermissionBlock(tool_use_id, tool_name, param_preview)
-            self._pending_permission_blocks[tool_use_id] = perm_block
+            self._pending_permission_blocks[permission_key] = perm_block
             prompt = self._prompt()
             if prompt is not None:
                 prompt.disabled = True
                 prompt.border_title = "permission required"
             self._append(perm_block)
-            select = PermissionSelect(tool_use_id)
+            select = PermissionSelect(tool_use_id, run_id)
             self._mount_permission_select(select)
-            log.debug("PermissionSelect mounted before #prompt  pending=%d", len(self._pending_permission_blocks))
+            log.debug(
+                "PermissionSelect mounted before #prompt  pending=%d",
+                len(self._pending_permission_blocks),
+            )
 
-        elif t == "permission.denied":
-            # 处理超时或断连等非用户交互触发的 deny（用户主动 deny 已由 on_permission_select_decided 处理）
+        elif t in {"permission.granted", "permission.denied"}:
             tool_use_id = str(event.get("tool_use_id", ""))
             decision = str(event.get("decision", "denied"))
-            if tool_use_id in self._pending_permission_blocks:
-                perm_block = self._pending_permission_blocks.pop(tool_use_id)
-                perm_block._resolve(decision)
-                try:
-                    for select in self.query(PermissionSelect):
-                        if select._tool_use_id == tool_use_id:
-                            select.remove()
-                            break
-                except Exception:
-                    pass
-                if not self._pending_permission_blocks:
-                    p = self._prompt()
-                    if p is not None:
-                        p.disabled = False
-                        p.read_only = False
-                        p.border_title = "type a message — enter to send, ⌘/⇧/⌥+enter for newline"
-                        p.focus()
+            self._settle_permission((run_id, tool_use_id), decision)
 
         elif t == "log.line":
             level = event.get("level", "INFO")

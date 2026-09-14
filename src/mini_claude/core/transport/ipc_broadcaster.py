@@ -60,7 +60,9 @@ class IpcEventBroadcaster:
         for sub in list(self._subscriptions):
             if not self._matches_topic(event_type, sub.topics):
                 continue
-            if not self._matches_scope(run_id, sub.scope):
+            if not self._matches_scope(
+                run_id, sub.scope, event_dict.get("session_id"), event_dict.get("root_run_id"),
+            ):
                 continue
             try:
                 envelope = EventPushEnvelope(event=event_dict)
@@ -91,11 +93,18 @@ class IpcEventBroadcaster:
     def _matches_topic(event_type: str, topics: list[str]) -> bool:
         return any(fnmatch.fnmatch(event_type, pattern) for pattern in topics)
 
-    # 检查事件 run_id 是否匹配订阅的 scope（global 全通，run:<id> 精确匹配）
+    # 支持全局、精确运行、整棵运行树和会话订阅，实时与回放共用过滤规则
     @staticmethod
-    def _matches_scope(run_id: str | None, scope: str) -> bool:
+    def _matches_scope(
+        run_id: str | None, scope: str, session_id: str | None = None,
+        root_run_id: str | None = None,
+    ) -> bool:
         if scope == "global":
             return True
         if scope.startswith("run:"):
             return run_id == scope[4:]
+        if scope.startswith("session:"):
+            return session_id == scope[8:]
+        if scope.startswith("tree:"):
+            return root_run_id == scope[5:] or run_id == scope[5:]
         return False

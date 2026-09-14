@@ -102,7 +102,9 @@ class AnthropicProvider:
                     async for text in stream.text_stream:
                         # Only publish token events on the first attempt to avoid TUI duplicates
                         if attempt == 1:
-                            await bus.publish(LlmTokenEvent(run_id=run_id, token=text, ts=_now()))
+                            await bus.publish(LlmTokenEvent(
+                                run_id=run_id, step=step, token=text, ts=_now(),
+                            ))
                         text_parts.append(text)
                     final_message = await stream.get_final_message()
                 break  # success
@@ -149,7 +151,9 @@ class AnthropicProvider:
                 )
             elif block.type == "thinking":
                 # thinking blocks must be passed back verbatim in subsequent requests
-                thinking_blocks.append({"type": "thinking", "thinking": block.thinking, "signature": block.signature})
+                thinking_blocks.append({
+                    "type": "thinking", "thinking": block.thinking, "signature": block.signature,
+                })
 
         return LlmResponse(
             stop_reason=final_message.stop_reason or "end_turn",

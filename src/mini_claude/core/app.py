@@ -243,10 +243,13 @@ class CoreApp:
         if self._permission_manager is None:
             logger.error("permission.respond: PermissionManager not initialized")
             return PermissionRespondResult()
-        self._permission_manager.respond(cmd.tool_use_id, cmd.decision)
+        try:
+            self._permission_manager.respond(cmd.tool_use_id, cmd.decision, run_id=cmd.run_id)
+        except ValueError as exc:
+            raise HandlerError(-32602, str(exc)) from exc
         return PermissionRespondResult()
 
-    # 手动压缩 session thread，将摘要持久化写入 thread.jsonl
+    # 手动压缩模型上下文并保存摘要检查点，原始历史保持完整
     async def _session_compact_handler(self, params: dict[str, Any]) -> SessionCompactResult:
         assert self._sessions is not None
         cmd = SessionCompactCommand.model_validate(params)
@@ -268,7 +271,7 @@ class CoreApp:
         replayed_count = 0
         if cmd.replay_from_run is not None:
             replayed_count = await self._replay_events(
-                cmd.replay_from_run, writer, cmd.topics
+                cmd.replay_from_run, writer, cmd.topics, scope=cmd.scope,
             )
 
         assert self._broadcaster is not None
@@ -281,26 +284,75 @@ class CoreApp:
         run_id: str,
         writer: asyncio.StreamWriter,
         topics: list[str],
+        *,
+        scope: str = "global",
     ) -> int:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", run_id):
             raise HandlerError(-32602, "invalid run id")
         path = events_file(run_id)
+        session_id = None
         if self._sessions is not None:
             session_path = self._sessions.events_path(run_id)
             if session_path is None:
                 return 0
             path = session_path
+            session_id = next(
+                (session.id for session in self._sessions.list_sessions()
+                 if run_id in session.run_ids), None,
+            )
         if not path.exists():
             return 0
 
-        count = 0
-        for line in path.read_text().splitlines():
-            if not line:
+        records: list[tuple[Path, dict[str, Any]]] = []
+        candidates = {path, *path.parent.parent.glob("*/events.jsonl")}
+        for candidate in sorted(candidates):
+            if candidate.is_symlink() or not candidate.resolve().is_relative_to(
+                path.parent.parent.resolve()
+            ):
                 continue
             try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
+                lines = candidate.read_bytes().split(b"\n")
+            except OSError:
                 continue
+            for line in lines:
+                try:
+                    event = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+                if isinstance(event, dict):
+                    records.append((candidate, event))
+        allowed = {run_id}
+        parents: dict[str, str] = {}
+        while True:
+            descendants = {
+                str(event["run_id"]): str(event["parent_run_id"]) for _, event in records
+                if event.get("run_id") and event.get("parent_run_id") in allowed
+            }
+            parents.update(descendants)
+            if descendants.keys() <= allowed:
+                break
+            allowed.update(descendants)
+
+        count = 0
+        seen: dict[str, Path] = {}
+        for source, event in sorted(records, key=lambda row: str(row[1].get("ts", ""))):
+            if event.get("run_id") not in allowed:
+                continue
+            # 旧日志只有开始事件携带父关系，先补齐已确认归属再执行同一作用域过滤
+            event = {
+                **event,
+                "session_id": event.get("session_id") or session_id,
+                "root_run_id": event.get("root_run_id") or run_id,
+                "parent_run_id": event.get("parent_run_id") or parents.get(event["run_id"]),
+            }
+            if not IpcEventBroadcaster._matches_scope(
+                event.get("run_id"), scope, event.get("session_id"), event.get("root_run_id"),
+            ):
+                continue
+            identity = json.dumps(event, sort_keys=True)
+            if identity in seen and seen[identity] != source:
+                continue
+            seen[identity] = source
             event_type: str = event.get("type", "")
             if not any(fnmatch.fnmatch(event_type, p) for p in topics):
                 continue

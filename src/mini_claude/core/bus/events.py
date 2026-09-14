@@ -17,7 +17,13 @@ class CoreStartedEvent(BaseModel):
     version: str
 
 
-class RunStartedEvent(BaseModel):
+class RunEvent(BaseModel):
+    session_id: str | None = None
+    root_run_id: str | None = None
+    parent_run_id: str | None = None
+
+
+class RunStartedEvent(RunEvent):
     type: Literal["run.started"] = "run.started"
     run_id: str
     goal: str
@@ -25,7 +31,7 @@ class RunStartedEvent(BaseModel):
     session_id: str | None = None
 
 
-class RunFinishedEvent(BaseModel):
+class RunFinishedEvent(RunEvent):
     type: Literal["run.finished"] = "run.finished"
     run_id: str
     status: str  # "success" | "failed"
@@ -34,21 +40,21 @@ class RunFinishedEvent(BaseModel):
     ts: str
 
 
-class StepStartedEvent(BaseModel):
+class StepStartedEvent(RunEvent):
     type: Literal["step.started"] = "step.started"
     run_id: str
     step: int
     ts: str
 
 
-class StepFinishedEvent(BaseModel):
+class StepFinishedEvent(RunEvent):
     type: Literal["step.finished"] = "step.finished"
     run_id: str
     step: int
     ts: str
 
 
-class ToolCallStartedEvent(BaseModel):
+class ToolCallStartedEvent(RunEvent):
     type: Literal["tool.call_started"] = "tool.call_started"
     run_id: str
     tool_use_id: str
@@ -57,7 +63,7 @@ class ToolCallStartedEvent(BaseModel):
     ts: str
 
 
-class ToolCallFinishedEvent(BaseModel):
+class ToolCallFinishedEvent(RunEvent):
     type: Literal["tool.call_finished"] = "tool.call_finished"
     run_id: str
     tool_use_id: str
@@ -67,7 +73,7 @@ class ToolCallFinishedEvent(BaseModel):
     ts: str
 
 
-class ToolCallFailedEvent(BaseModel):
+class ToolCallFailedEvent(RunEvent):
     type: Literal["tool.call_failed"] = "tool.call_failed"
     run_id: str
     tool_use_id: str
@@ -80,14 +86,31 @@ class ToolCallFailedEvent(BaseModel):
     ts: str
 
 
-class LlmTokenEvent(BaseModel):
+class LlmTokenEvent(RunEvent):
     type: Literal["llm.token"] = "llm.token"
     run_id: str
     token: str
+    step: int = 0
     ts: str
 
 
-class LlmUsageEvent(BaseModel):
+class LlmResponseCompletedEvent(RunEvent):
+    type: Literal["llm.response.completed"] = "llm.response.completed"
+    run_id: str
+    step: int
+    text: str
+    ts: str
+
+
+class LlmResponseFailedEvent(RunEvent):
+    type: Literal["llm.response.failed"] = "llm.response.failed"
+    run_id: str
+    step: int
+    reason: str
+    ts: str
+
+
+class LlmUsageEvent(RunEvent):
     type: Literal["llm.usage"] = "llm.usage"
     run_id: str
     input_tokens: int
@@ -98,7 +121,7 @@ class LlmUsageEvent(BaseModel):
     ts: str
 
 
-class LlmModelSelectedEvent(BaseModel):
+class LlmModelSelectedEvent(RunEvent):
     type: Literal["llm.model_selected"] = "llm.model_selected"
     run_id: str
     model: str
@@ -106,7 +129,7 @@ class LlmModelSelectedEvent(BaseModel):
     ts: str
 
 
-class LogLineEvent(BaseModel):
+class LogLineEvent(RunEvent):
     type: Literal["log.line"] = "log.line"
     run_id: str
     level: str  # "DEBUG" | "INFO" | "WARNING" | "ERROR"
@@ -148,7 +171,7 @@ class SessionClosedEvent(BaseModel):
     ts: str
 
 
-class ContextCompactedEvent(BaseModel):
+class ContextCompactedEvent(RunEvent):
     type: Literal["context.compacted"] = "context.compacted"
     session_id: str
     run_id: str
@@ -157,7 +180,7 @@ class ContextCompactedEvent(BaseModel):
     ts: str
 
 
-class PermissionRequestedEvent(BaseModel):
+class PermissionRequestedEvent(RunEvent):
     type: Literal["permission.requested"] = "permission.requested"
     run_id: str
     tool_use_id: str
@@ -168,7 +191,7 @@ class PermissionRequestedEvent(BaseModel):
     ts: str
 
 
-class PermissionGrantedEvent(BaseModel):
+class PermissionGrantedEvent(RunEvent):
     type: Literal["permission.granted"] = "permission.granted"
     run_id: str
     tool_use_id: str
@@ -177,7 +200,7 @@ class PermissionGrantedEvent(BaseModel):
     ts: str
 
 
-class PermissionDeniedEvent(BaseModel):
+class PermissionDeniedEvent(RunEvent):
     type: Literal["permission.denied"] = "permission.denied"
     run_id: str
     tool_use_id: str
@@ -186,7 +209,7 @@ class PermissionDeniedEvent(BaseModel):
     ts: str
 
 
-class SubagentStartedEvent(BaseModel):
+class SubagentStartedEvent(RunEvent):
     type: Literal["subagent.started"] = "subagent.started"
     run_id: str          # 子 agent run_id
     parent_run_id: str
@@ -194,7 +217,7 @@ class SubagentStartedEvent(BaseModel):
     ts: str
 
 
-class SubagentFinishedEvent(BaseModel):
+class SubagentFinishedEvent(RunEvent):
     type: Literal["subagent.finished"] = "subagent.finished"
     run_id: str
     parent_run_id: str
@@ -202,7 +225,7 @@ class SubagentFinishedEvent(BaseModel):
     ts: str
 
 
-class SkillInvokedEvent(BaseModel):
+class SkillInvokedEvent(RunEvent):
     type: Literal["skill.invoked"] = "skill.invoked"
     skill_name: str
     arguments: str
@@ -221,6 +244,8 @@ Event = Annotated[
     | ToolCallFinishedEvent
     | ToolCallFailedEvent
     | LlmTokenEvent
+    | LlmResponseCompletedEvent
+    | LlmResponseFailedEvent
     | LlmUsageEvent
     | LlmModelSelectedEvent
     | LogLineEvent

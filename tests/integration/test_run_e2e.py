@@ -22,7 +22,13 @@ from mini_claude.core.runner import AgentRunner
 # Load project .env so ANTHROPIC_API_KEY is available without going through get_config()
 load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
 
-pytestmark = pytest.mark.integration
+# 在收集阶段固定是否具备真实测试凭据，后续测试修改环境不能意外启用外部调用
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY not set at collection",
+    ),
+]
 
 
 @pytest.fixture()

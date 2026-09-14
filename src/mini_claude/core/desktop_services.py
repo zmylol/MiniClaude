@@ -96,8 +96,11 @@ class ManagedMcpServers(McpServerManager):
 
     # 连接和发现全部成功后一次性公开工具，失败时关闭半初始化客户端。
     async def _start_plugin(self, name: str) -> None:
-        if name in self._clients:
-            return
+        existing = self._clients.get(name)
+        if existing is not None:
+            if existing.connected:
+                return
+            await self._stop_plugin(name)
         config = self._configs[name]
         client = self._client_factory()
         try:
@@ -127,17 +130,27 @@ class ManagedMcpServers(McpServerManager):
         if client is not None:
             await client.close()
 
+    # 新运行只获得仍连接的插件工具，旧运行的失败操作交由模型决定后续动作
+    def get_tools(self) -> list[McpTool]:
+        return [
+            tool for name, group in self._server_tools.items()
+            if name in self._clients and self._clients[name].connected
+            for tool in group
+        ]
+
     # 返回界面所需的有限字段，不公开命令参数、环境变量或服务端异常内容。
     async def list_plugins(self, params: dict[str, Any]) -> PluginsResult:
         PluginsListCommand.model_validate(params)
         servers = []
         for name, config in self._configs.items():
-            status = "connected" if name in self._clients else "error"
+            client = self._clients.get(name)
+            status = "connected" if client is not None and client.connected else "error"
             if not self._enabled.get(name, True):
                 status = "disabled"
             servers.append(PluginInfo.model_validate({
                 "name": name, "transport": config.transport, "status": status,
-                "tools": [tool.name for tool in self._server_tools.get(name, [])],
+                "tools": ([tool.name for tool in self._server_tools.get(name, [])]
+                          if status == "connected" else []),
                 "managed": name in self._managed,
             }))
         return PluginsResult(servers=servers)

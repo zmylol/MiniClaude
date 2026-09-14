@@ -60,7 +60,7 @@ async def _fail(
     return ToolResult(content=error_message, is_error=True, error_type=error_class)
 
 
-# 校验参数、检查权限、限时调用工具、发布进度事件，失败时指数退避重试，返回 ToolResult（不抛异常）
+# 校验参数和权限并限时调用工具，仅对显式安全的工具退避重试，发布事件并返回结果
 async def invoke_tool(
     registry: ToolRegistry,
     tool_call: ToolCallBlock,
@@ -175,6 +175,15 @@ async def invoke_tool(
             return await _fail(
                 bus, run_id, tool_call,
                 "timeout", f"tool timed out after {timeout}s", elapsed(),
+                attempt=attempt,
+            )
+        except (
+            ValueError, LookupError, PermissionError,
+            FileNotFoundError, IsADirectoryError, NotADirectoryError,
+        ) as exc:
+            return await _fail(
+                bus, run_id, tool_call,
+                "runtime_error", str(exc), elapsed(),
                 attempt=attempt,
             )
         except Exception as exc:

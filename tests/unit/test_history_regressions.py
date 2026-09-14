@@ -141,3 +141,44 @@ async def test_manual_compaction_preserves_raw_history(tmp_path: Path) -> None:
         {"type": "tool_use", "id": "orphan", "name": "read_file", "input": {}},
     ])
     assert len(await manager.get_history(session.id)) == 4
+
+
+# 功能：历史或摘要提交失败仍清理浏览器，并向客户端报告失败而非成功
+# 设计：在生产存储接口注入磁盘错误，观察清理资源和运行终态两个出口
+@pytest.mark.parametrize("failure", ["history", "checkpoint"])
+async def test_storage_failure_cleans_browser_and_reports_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from mini_claude.core.session.model import Session
+
+    config = MiniConfig()
+    config.compaction.auto_threshold = 0.8
+    browser = MagicMock()
+    browser.get_tools.return_value = []
+    browser.close = AsyncMock()
+    monkeypatch.setattr("mini_claude.core.runner.BrowserSession", lambda **kwargs: browser)
+    store = SessionStore(tmp_path)
+    session = Session(id="sess-failure", mode="chat", status="active", title="",
+                      created_at="t", updated_at="t")
+    store.write_meta(session)
+    store.append_message(session.id, "user", "GOAL")
+
+    # 注入持续磁盘错误，确保最终清理不能依赖重试恰好成功
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, "append_message" if failure == "history" else "write_compacted", fail)
+    events: list[Any] = []
+
+    # 收集运行终态以检查保存失败是否被错误报告为成功
+    async def collect(event: Any) -> None:
+        events.append(event)
+
+    runner = AgentRunner(config, provider=CompactingProvider(1), extra_handlers=[collect])
+    outcome = await runner.run_and_capture("GOAL", session=session, store=store)
+    browser.close.assert_awaited_once()
+    assert outcome.status == "failed"
+    assert outcome.reason == "persistence_error"
+    assert [event.status for event in events if event.type == "run.finished"] == ["failed"]

@@ -27,6 +27,15 @@ class McpToolDef:
     input_schema: dict[str, Any] = field(default_factory=dict)
 
 
+class _ConnectionReader(asyncio.StreamReader):
+    closed = False
+
+    # 独立记录对端 EOF，即使缓冲区仍有未消费的通知也能判断连接已经关闭
+    def feed_eof(self) -> None:
+        self.closed = True
+        super().feed_eof()
+
+
 # 通过 stdio 或 TCP 与 MCP server 通信的 JSON-RPC 2.0 客户端
 class McpClient:
     # 初始化单连接状态与串行请求锁
@@ -39,6 +48,24 @@ class McpClient:
         self._lock = asyncio.Lock()
         self._stderr_task: asyncio.Task[None] | None = None
         self._close_task: asyncio.Task[None] | None = None
+        self._unavailable = False
+
+    @property
+    # 根据进程、读写端及已发生的传输错误判断连接是否仍然有效
+    def connected(self) -> bool:
+        if self._unavailable or self._close_task is not None or self._reader is None:
+            return False
+        if self._reader.at_eof() or self._reader.exception() is not None:
+            return False
+        if isinstance(self._reader, _ConnectionReader) and self._reader.closed:
+            return False
+        if self._transport == "stdio":
+            return bool(
+                self._proc is not None and self._proc.returncode is None
+                and self._proc.stdin is not None and not self._proc.stdin.is_closing()
+            )
+        writer = getattr(self, "_tcp_writer", None)
+        return bool(self._transport == "tcp" and writer is not None and not writer.is_closing())
 
     _STREAM_LIMIT = 64 * 1024 * 1024  # 64 MB，防止大响应触发 LimitOverrunError
 
@@ -77,10 +104,12 @@ class McpClient:
 
     # 通过 TCP 连接到 MCP server 并完成 initialize 握手
     async def connect_tcp(self, host: str, port: int) -> None:
-        self._reader, tcp_writer = await asyncio.open_connection(
-            host, port, limit=self._STREAM_LIMIT,
-        )
-        self._tcp_writer = tcp_writer
+        loop = asyncio.get_running_loop()
+        reader = _ConnectionReader(limit=self._STREAM_LIMIT)
+        protocol = asyncio.StreamReaderProtocol(reader)
+        transport, _ = await loop.create_connection(lambda: protocol, host, port)
+        self._reader = reader
+        self._tcp_writer = asyncio.StreamWriter(transport, protocol, reader, loop)
         self._transport = "tcp"
         try:
             await self._initialize()
@@ -233,7 +262,11 @@ class McpClient:
                             )
                         result: dict[str, Any] = msg.get("result", {})
                         return result
-            except (OSError, ConnectionError) as exc:
+            except McpServerUnavailableError:
+                self._unavailable = True
+                raise
+            except OSError as exc:
+                self._unavailable = True
                 raise McpServerUnavailableError(str(exc)) from exc
 
     # 发送 JSON-RPC 通知（无响应）

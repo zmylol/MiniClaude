@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -168,3 +168,51 @@ for line in sys.stdin:
         assert await client.call_tool("echo", {"text": "still connected"}) == "still connected"
     finally:
         await client.close()
+
+
+# 功能：TCP MCP 在空闲收到 EOF 或本地 writer 关闭后也不会继续报告连接有效
+# 设计：真实 StreamReader 注入 EOF 并替换无网络 writer，覆盖无需另一次工具调用的断开状态
+async def test_tcp_idle_eof_and_closing_writer_invalidate_connection() -> None:
+    client = McpClient()
+    reader = asyncio.StreamReader()
+    writer = MagicMock()
+    writer.is_closing.return_value = False
+    client._transport = "tcp"
+    client._reader = reader
+    client._tcp_writer = writer
+    assert client.connected
+    writer.is_closing.return_value = True
+    assert not client.connected
+    writer.is_closing.return_value = False
+    reader.feed_eof()
+    assert not client.connected
+
+
+# 功能：TCP 服务发送未消费通知后关闭连接，插件状态仍能立即检测 EOF
+# 设计：真实本地 TCP 服务只发送通知再关闭，等待传输接收 EOF 而不读取缓冲区以复现 at_eof 的遗漏
+async def test_tcp_eof_with_unread_notification_is_disconnected(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 向客户端发送一条无需响应的通知后关闭 TCP 传输
+    async def peer(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        writer.write(b'{"jsonrpc":"2.0","method":"notifications/message"}\n')
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_server(peer, "127.0.0.1", 0)
+    client = McpClient()
+    monkeypatch.setattr(client, "_initialize", AsyncMock())
+    try:
+        await client.connect_tcp("127.0.0.1", server.sockets[0].getsockname()[1])
+
+        # 仅同步传输到达 EOF 的时刻，确保测试本身不消费待处理的通知
+        async def wait_for_eof() -> None:
+            while not getattr(client._reader, "_eof", False):
+                await asyncio.sleep(0)
+
+        await asyncio.wait_for(wait_for_eof(), 1)
+        assert client._reader is not None and not client._reader.at_eof()
+        assert not client.connected
+    finally:
+        await client.close()
+        server.close()
+        await server.wait_closed()

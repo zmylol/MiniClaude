@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from mini_claude.core.tools.base import BaseTool, ToolResult
+from mini_claude.core.tools.paths import resolve_workspace_path
 
 _MAX_BYTES = 1 * 1024 * 1024  # 1 MB
 
@@ -39,14 +40,13 @@ class WriteFileTool(BaseTool):
         "required": ["path", "content"],
     }
 
-    # 写入文件内容；超 1MB 拒绝；禁止 .. 路径遍历；自动创建父目录
+    # 写入工作区内文件，校验链接及父目录归属，自动创建目录并限制内容为 1MB
     async def invoke(self, params: dict[str, object]) -> ToolResult:
         p = WriteFileParams.model_validate(params)
         path_str = p.path
         content = p.content
 
-        if ".." in Path(path_str).parts:
-            raise PermissionError(f"path traversal not allowed: {path_str}")
+        path = resolve_workspace_path(Path(path_str))
 
         encoded = content.encode("utf-8")
         if len(encoded) > _MAX_BYTES:
@@ -56,7 +56,6 @@ class WriteFileTool(BaseTool):
                 error_type="runtime_error",
             )
 
-        path = Path(path_str)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
 

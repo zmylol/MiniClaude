@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from mini_claude.core.llm.base import LLMProvider
     from mini_claude.core.permissions.manager import PermissionManager
     from mini_claude.core.runner import AgentRunner
+    from mini_claude.core.subagent.registry import BackgroundTaskRegistry
 
 SESSION_NOT_FOUND = -32010
 SESSION_CLOSED = -32011
@@ -63,7 +64,8 @@ class SessionManager:
         self._default_model = default_model
         self._permission_manager = permission_manager
         self._active: dict[str, asyncio.Task[Any]] = {}
-        self._runners: dict[str, list[AgentRunner]] = {}
+        self._background: dict[str, BackgroundTaskRegistry] = {}
+        self._closing: set[str] = set()
         self._cancelled: set[str] = set()
         self._last_cancelled: dict[str, bool] = {}
         self._outcomes: dict[str, tuple[str | None, str | None]] = {}
@@ -117,7 +119,7 @@ class SessionManager:
     ) -> str:
         session = self._get_session(sid)
         lock = self._locks[sid]
-        if lock.locked() or sid in self._stopping:
+        if lock.locked() or sid in self._stopping or sid in self._closing:
             raise HandlerError(SESSION_BUSY, "session busy")
 
         async with lock:
@@ -146,6 +148,7 @@ class SessionManager:
                 session.title = content[:40] or "图片对话"
 
             run_id = run_id or new_run_id()
+            self._bus.register_run(run_id, sid)
             session.status = "active"
             self._last_cancelled[sid] = False
             self._outcomes[sid] = (None, None)
@@ -164,7 +167,7 @@ class SessionManager:
                 skill = self._skill_loader.resolve(skill_name)
                 if skill is not None:
                     goal = self._skill_loader.render_prompt(skill, arguments)
-                    system_prompt_override = skill.system_prompt_template
+                    system_prompt_override = goal
                     tool_whitelist = skill.allowed_tools or None
                     await self._bus.publish(
                         SkillInvokedEvent(
@@ -176,10 +179,11 @@ class SessionManager:
                     )
 
             runner = self._runner_factory()
-            self._runners[sid] = [
-                previous for previous in self._runners.get(sid, [])
-                if getattr(previous, "has_background_runs", lambda: False)()
-            ] + [runner]
+            from mini_claude.core.subagent.registry import BackgroundTaskRegistry
+
+            background = self._background.setdefault(sid, BackgroundTaskRegistry())
+            if bind_registry := getattr(runner, "set_task_registry", None):
+                bind_registry(background)
             if self._permission_manager is not None:
                 self._permission_manager.set_session_mode(sid, session.permission_mode)
             task = asyncio.create_task(runner.run_and_capture(
@@ -208,6 +212,8 @@ class SessionManager:
 
             session.updated_at = _now()
             if session.mode == "one_shot":
+                await background.cancel(close=True)
+                self._background.pop(sid, None)
                 session.status = "closed"
                 await self._bus.publish(SessionClosedEvent(session_id=sid, ts=session.updated_at))
             else:
@@ -238,8 +244,7 @@ class SessionManager:
     # 检查所有主运行与后台子代理是否仍在执行
     def has_active_runs(self) -> bool:
         return any(lock.locked() for lock in self._locks.values()) or bool(self._active) or any(
-            getattr(runner, "has_background_runs", lambda: False)()
-            for runners in self._runners.values() for runner in runners
+            registry.is_running() for registry in self._background.values()
         )
 
     # 返回最近一次消息是否由用户停止
@@ -252,10 +257,8 @@ class SessionManager:
 
     # 返回会话当前是否正在运行，以便桌面重连时恢复停止按钮和运行映射
     def is_running(self, sid: str) -> bool:
-        return sid in self._active or any(
-            getattr(runner, "has_background_runs", lambda: False)()
-            for runner in self._runners.get(sid, [])
-        )
+        registry = self._background.get(sid)
+        return sid in self._active or (registry is not None and registry.is_running())
 
     # 重命名会话并持久化新的标题
     async def rename(self, sid: str, title: str) -> Session:
@@ -273,10 +276,7 @@ class SessionManager:
         permission_mode: PermissionMode | None = None,
     ) -> Session:
         session = self._get_session(sid)
-        if self._locks[sid].locked() or any(
-            getattr(runner, "has_background_runs", lambda: False)()
-            for runner in self._runners.get(sid, [])
-        ):
+        if self._locks[sid].locked() or self.is_running(sid):
             raise HandlerError(SESSION_BUSY, "session busy")
         if model is not None:
             session.model = model
@@ -291,6 +291,9 @@ class SessionManager:
         self._get_session(sid)
         async with self._cancel_locks.setdefault(sid, asyncio.Lock()):
             self._stopping.add(sid)
+            background = self._background.get(sid)
+            if background is not None:
+                background.accepting = False
             try:
                 task = self._active.get(sid)
                 cancelled = task is not None and not task.done()
@@ -300,49 +303,53 @@ class SessionManager:
                         task.cancel()
                 if task is not None:
                     await asyncio.gather(task, return_exceptions=True)
-                for runner in self._runners.get(sid, []):
-                    stop = getattr(runner, "cancel_background", None)
-                    if stop is not None:
-                        cancelled = await stop() or cancelled
+                if background is not None:
+                    cancelled = await background.cancel(close=sid in self._closing) or cancelled
                 if self._permission_manager is not None:
                     self._permission_manager.cancel_session(sid, reason="user_cancelled")
                 return cancelled
             finally:
                 self._stopping.discard(sid)
 
-    # 删除空闲会话及其持久化历史，运行中的会话需先显式停止
+    # 阻止新任务并取消全部活跃运行后删除会话和历史
     async def delete(self, sid: str) -> None:
         self._get_session(sid)
         lock = self._locks[sid]
-        if lock.locked():
-            raise HandlerError(SESSION_BUSY, "session busy; stop before deleting")
-        async with lock:
+        self._closing.add(sid)
+        try:
             await self.cancel(sid)
-            self._store.delete(sid)
-            del self._sessions[sid]
-            self._locks.pop(sid, None)
-            self._runners.pop(sid, None)
-            self._last_cancelled.pop(sid, None)
-            self._outcomes.pop(sid, None)
+            async with lock:
+                self._store.delete(sid)
+                del self._sessions[sid]
+                self._locks.pop(sid, None)
+                self._background.pop(sid, None)
+                self._last_cancelled.pop(sid, None)
+                self._outcomes.pop(sid, None)
+        finally:
+            self._closing.discard(sid)
 
     # 关闭守护进程前停止所有会话，避免后台工具残留
     async def stop_all(self) -> None:
         for sid in list(self._sessions):
             await self.cancel(sid)
 
-    # 关闭指定 session 并更新 meta.json
+    # 关闭前禁止新任务并等待主运行和后台任务全部结束
     async def close(self, sid: str) -> None:
         session = self._get_session(sid)
         lock = self._locks[sid]
-        if lock.locked():
-            raise HandlerError(SESSION_BUSY, "session busy")
-        async with lock:
-            session.status = "closed"
-            session.updated_at = _now()
-            self._store.write_meta(session)
-            await self._bus.publish(SessionClosedEvent(session_id=sid, ts=session.updated_at))
+        self._closing.add(sid)
+        try:
+            await self.cancel(sid)
+            async with lock:
+                self._background.pop(sid, None)
+                session.status = "closed"
+                session.updated_at = _now()
+                self._store.write_meta(session)
+                await self._bus.publish(SessionClosedEvent(session_id=sid, ts=session.updated_at))
+        finally:
+            self._closing.discard(sid)
 
-    # 手动压缩指定 session 的 thread，将摘要持久化写入 thread.jsonl
+    # 手动压缩模型上下文，原始 thread 始终保留供历史展示
     async def compact(self, sid: str, focus: str = "") -> Any:
         session = self._get_session(sid)
         lock = self._locks[sid]
@@ -376,7 +383,7 @@ class SessionManager:
     # 读取指定 session 的完整 thread 历史
     async def get_history(self, sid: str) -> list[dict[str, Any]]:
         self._get_session(sid)
-        return self._store.read_messages(sid)
+        return self._store.read_history(sid)
 
     # 从内存索引取 session，不存在时抛 JSON-RPC 结构化错误
     def _get_session(self, sid: str) -> Session:

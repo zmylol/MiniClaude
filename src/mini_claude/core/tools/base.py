@@ -20,7 +20,8 @@ class BaseTool(ABC):
     description: str
     input_schema: dict[str, object]
     params_model: ClassVar[type[BaseModel] | None] = None
-    retry_on_error: bool = True
+    # 只有确认重复调用不会增加副作用的工具才能显式开启自动重试
+    retry_on_error: bool = False
 
     # 执行工具调用，返回结果或错误
     @abstractmethod

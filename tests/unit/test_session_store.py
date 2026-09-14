@@ -66,9 +66,9 @@ def test_thread_message_roundtrip_with_tool_blocks(tmp_path: Path) -> None:
     ]
 
 
-# 功能：验证 thread 尾部孤儿 tool_use 会被裁掉
-# 设计：构造一条未配对 tool_result 的 assistant tool_use，读取时只返回最后一次配平之前的消息，避免 API 报 messages.invalid
-def test_read_messages_trims_orphan_tool_use_tail(tmp_path: Path) -> None:
+# 功能：验证 thread 尾部未完成调用在模型视图获得未知结果，原始历史不被改写
+# 设计：构造缺少结果的 assistant 调用，检查仍保留调用信息且不暗示执行成功或安全重试
+def test_read_messages_repairs_interrupted_tool_use_tail(tmp_path: Path) -> None:
     store = SessionStore(tmp_path)
     store.append_message("sess-1", "user", "hello")
     store.append_message(
@@ -77,7 +77,15 @@ def test_read_messages_trims_orphan_tool_use_tail(tmp_path: Path) -> None:
         [{"type": "tool_use", "id": "orphan", "name": "read_file", "input": {}}],
         run_id="run-1",
     )
-    assert store.read_messages("sess-1") == [{"role": "user", "content": "hello"}]
+    before = (store.session_dir("sess-1") / "thread.jsonl").read_bytes()
+    messages = store.read_messages("sess-1")
+    assert len(messages) == 3
+    result = messages[-1]["content"][0]
+    assert result["type"] == "tool_result"
+    assert result["tool_use_id"] == "orphan"
+    assert result["is_error"] is True
+    assert "effects are unknown" in result["content"]
+    assert (store.session_dir("sess-1") / "thread.jsonl").read_bytes() == before
 
 
 # 功能：验证 notes.md 不存在时读为空，追加笔记后能读到内容和 run_id

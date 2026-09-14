@@ -54,7 +54,7 @@ async def test_one_shot_rechecks_plugins_after_session_creation(tmp_path: Path) 
 
 
 # 功能：手动压缩遵循会话当前模型，同时保留旧调用方直接注入 provider 的能力。
-# 设计：真实压缩器读取和改写临时历史，只替换外部模型；两轮切换确认模型不是创建时快照。
+# 设计：真实压缩器生成持久摘要，只替换外部模型；两轮切换确认模型不是创建时快照。
 @pytest.mark.parametrize("use_factory", [True, False])
 async def test_manual_compaction_uses_current_session_model(
     tmp_path: Path, use_factory: bool,
@@ -82,8 +82,10 @@ async def test_manual_compaction_uses_current_session_model(
         await manager.configure(session.id, model=model)
         store.append_message(session.id, "user", "conversation details " * 30)
         await manager.compact(session.id)
-        history = await manager.get_history(session.id)
-        assert history[0]["content"] == (model if use_factory else "legacy")
-        assert len(history) == 2
+        context = store.read_messages(session.id)
+        assert context[0]["content"] == (model if use_factory else "legacy")
+        assert len(context) == 2
+        assert all(message["content"] == "conversation details " * 30
+                   for message in await manager.get_history(session.id))
     assert selected == (["first-model", "second-model"] if use_factory else [])
     assert fallback.chat.await_count == (0 if use_factory else 2)

@@ -12,6 +12,8 @@ async def test_denied_permission_removes_only_matching_selector(
 ) -> None:
     monkeypatch.setattr(MiniTuiApp, "on_mount", lambda self: None)
     app = MiniTuiApp("127.0.0.1", 9999)
+    app._session_id = "s"
+    app._run_sessions["run-1"] = "s"
 
     async with app.run_test() as pilot:
         for tool_use_id in ("first", "second"):
@@ -40,5 +42,5 @@ async def test_denied_permission_removes_only_matching_selector(
         await pilot.pause()
 
         assert list(app.query(PermissionSelect)) == [selectors[0]]
-        assert set(app._pending_permission_blocks) == {"first"}
+        assert set(app._pending_permission_blocks) == {("run-1", "first")}
         assert prompt.disabled

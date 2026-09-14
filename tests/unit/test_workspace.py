@@ -235,6 +235,29 @@ async def test_nested_project_and_untracked_diff(tmp_path: Path) -> None:
     assert "+new project content" in diff["diff"]
 
 
+@pytest.mark.parametrize("directory", [" leading", "\nleading", "ordinary"])
+# 功能：Git 子目录前导空格或换行仍返回正确相对路径且实际 diff 可以读取
+# 设计：真实仓库中的带空白目录提交再修改，复现 show-prefix 被 strip 后状态路径无法定位的问题
+async def test_git_nested_prefix_preserves_path_whitespace(tmp_path: Path, directory: str) -> None:
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    project = tmp_path / directory
+    project.mkdir()
+    source = project / "changed.txt"
+    source.write_text("before\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "."], check=True)
+    subprocess.run([
+        "git", "-C", str(tmp_path), "-c", "user.name=Test", "-c",
+        "user.email=test@example.invalid", "commit", "--quiet", "-m", "fixture",
+    ], check=True)
+    source.write_text("after\n")
+    workspace = Workspace(MiniConfig(), project)
+    status = await workspace.handle("workspace.git_status", {})
+    assert status["files"] == [{"path": "changed.txt", "status": " M"}]
+    diff = await workspace.handle("workspace.git_diff", {"path": status["files"][0]["path"]})
+    assert "-before" in diff["diff"]
+    assert "+after" in diff["diff"]
+
+
 # 功能：桌面服务命令根据目标项目连接正确 core，事件帧不会被误认为响应。
 # 设计：真实 TCP 假 core 检查方法及 ID，再发送一个无关事件和匹配结果。
 async def test_background_rpc_matches_response_and_target_project(tmp_path: Path) -> None:

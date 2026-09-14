@@ -437,10 +437,8 @@ async function approve(index, decision) {
   message.submitting = true;
   render();
   try {
-    await command('permission.respond', { tool_use_id: message.id, decision });
-    message.decision ||= decision;
-  } catch (error) { toast(`审批未成功：${error.message}`); }
-  message.submitting = false;
+    await command('permission.respond', { tool_use_id: message.id, run_id: message.runId || null, decision });
+  } catch (error) { message.submitting = false; toast(`审批未成功：${error.message}`); }
   persist(); render();
 }
 
@@ -592,7 +590,10 @@ async function reconcileSessions() {
       const unchanged = (conversation.eventVersion || 0) === (versions.get(remote.session_id) || 0);
       if (unchanged && remote.running) {
         conversation.mainStatus = 'running'; conversation.status = 'running';
-        if (remote.active_run_id) state.runs[remote.active_run_id] = { conversationId: conversation.id, parent: null };
+        if (remote.active_run_id) {
+          conversation.runId = remote.active_run_id;
+          state.runs[remote.active_run_id] = { conversationId: conversation.id, parent: null };
+        }
       } else if (unchanged && conversation.mainStatus !== 'sending') {
         conversation.mainStatus = 'idle'; conversation.status = 'idle';
       }

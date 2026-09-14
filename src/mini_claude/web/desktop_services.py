@@ -40,6 +40,9 @@ class Workspace(Protocol):
     # 检查计划所属项目是否仍在桌面列表中。
     def has_project(self, path: Path) -> bool: ...
 
+    # 返回有效登记项目，恢复计划元数据不要求用户逐个打开项目
+    def registered_projects(self) -> list[Path]: ...
+
     # 向指定项目所属的 core 发送命令，避免切换项目改变已创建计划的目标。
     async def request_core_for(
         self, project_path: Path, method: str, params: dict[str, Any],
@@ -57,7 +60,7 @@ def utc_now() -> datetime:
 
 
 class DesktopServices:
-    # 维护本次应用访问过的项目计划，每个项目的任务保持独立持久化。
+    # 恢复所有已登记项目计划，每个项目的任务保持独立持久化。
     def __init__(
         self, workspace: Workspace, *, now: Callable[[], datetime] = utc_now,
         on_change: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -122,6 +125,8 @@ class DesktopServices:
 
     # 读取项目计划，将上次进程中断的提交标记为中断而不是重复发起。
     def _load(self, project: Path) -> dict[str, Schedule]:
+        if not project.is_dir() or not self.workspace.has_project(project):
+            raise ValueError("项目已移除或目录不存在，计划不会继续执行。")
         if project in self._jobs:
             return self._jobs[project]
         self._claim_project(project)
@@ -254,19 +259,20 @@ class DesktopServices:
         await self._notify(project, result)
         return result
 
-    # 同时检查已访问的项目，旧项目计划继续绑定原项目的 core 地址。
+    # 枚举登记项目并恢复计划元数据，只有到期提交时才连接对应项目的 core
     async def tick(self) -> None:
         async with self._lock:
-            try:
-                if self.workspace.project_selected:
-                    self._load(self.workspace.project_path.resolve())
-            except HandlerError as exc:
-                if exc.code != SCHEDULE_IN_USE:
-                    raise
+            for project in self.workspace.registered_projects():
+                try:
+                    if project.is_dir() and self.workspace.has_project(project):
+                        self._load(project.resolve())
+                except (HandlerError, OSError, ValueError) as exc:
+                    if not isinstance(exc, HandlerError) or exc.code != SCHEDULE_IN_USE:
+                        logger.exception("无法恢复项目 %s 的计划", project)
             now = self._now()
             due = [
                 (project, job.id) for project, jobs in self._jobs.items() for job in jobs.values()
-                if self.workspace.has_project(project)
+                if project.is_dir() and self.workspace.has_project(project)
                 and job.enabled and job.status not in {"submitting", "running"}
                 and job.next_run <= now
             ]
@@ -307,7 +313,7 @@ class DesktopServices:
         self, project: Path, job_id: str, ready: asyncio.Future[Schedule], *, scheduled: bool,
     ) -> Schedule:
         async with self._lock:
-            if not self.workspace.has_project(project):
+            if not project.is_dir() or not self.workspace.has_project(project):
                 raise ValueError("项目已移除，计划不会继续执行。")
             jobs = self._load(project)
             current = jobs.get(job_id)

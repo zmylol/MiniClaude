@@ -117,3 +117,69 @@ test('completion after reconnect preserves the incomplete transcript marker', ()
   assert.equal(c.status, 'idle');
   assert.equal(c.needsHistorySync, true);
 });
+
+// 功能：完整响应校正临时文本，空文本与失败清除残句，旧响应不会覆盖下一轮。
+// 设计：重放完成、迟到 token 和多步骤交错，要求按 run 与 step 关联而不是覆盖最后一条文本。
+test('reconciles authoritative responses with replay and failed attempts', () => {
+  const c = createConversation('a'); c.sessionId = 's';
+  const state = { conversations: [c], runs: {} };
+  for (const event of [
+    { type: 'llm.token', run_id: 'r', step: 1, token: 'half' },
+    { type: 'llm.response.completed', run_id: 'r', step: 1, text: 'complete' },
+    { type: 'llm.token', run_id: 'r', step: 1, token: 'late' },
+    { type: 'llm.token', run_id: 'r', step: 2, token: 'empty half' },
+    { type: 'llm.response.completed', run_id: 'r', step: 2, text: '' },
+    { type: 'llm.token', run_id: 'r', step: 3, token: 'failed half' },
+    { type: 'llm.response.failed', run_id: 'r', step: 3, reason: 'cancelled' },
+    { type: 'llm.response.completed', run_id: 'next', step: 1, text: 'next answer' },
+    { type: 'llm.response.completed', run_id: 'r', step: 1, text: 'complete' },
+  ]) applyEvent(state, { ...event, session_id: 's' });
+  assert.deepEqual(c.messages.filter(m => m.kind === 'text').map(m => m.text), ['complete', '', '', 'next answer']);
+});
+
+// 功能：重连错过子运行开始事件时仍用显式归属隔离其回复和完成状态。
+// 设计：直接投递带 session/root/parent 的子运行事件，并在下一轮后回放前轮完成。
+test('uses explicit child ownership without prior start and ignores old completion status', () => {
+  const c = createConversation('a'); c.sessionId = 's';
+  const state = { conversations: [c], runs: {} };
+  applyEvent(state, { type: 'run.started', run_id: 'root', session_id: 's' });
+  for (const event of [
+    { type: 'llm.response.completed', text: 'child analysis', step: 1 },
+    { type: 'run.finished', status: 'success' },
+  ]) applyEvent(state, { ...event, run_id: 'child', root_run_id: 'root', parent_run_id: 'root', session_id: 's' });
+  assert.equal(c.status, 'running');
+  assert.equal(c.messages.filter(m => m.kind === 'text').length, 0);
+  applyEvent(state, { type: 'run.started', run_id: 'next', session_id: 's' });
+  applyEvent(state, { type: 'run.finished', run_id: 'root', session_id: 's', status: 'success' });
+  assert.equal(c.status, 'running');
+});
+
+// 功能：同一会话中主子运行共用工具 ID 时，审批与工具结果分别归属对应运行。
+// 设计：创建两个同 ID 审批并只批准子运行，再恢复两份快照，避免按 ID 单独匹配造成覆盖。
+test('separates duplicate tool identifiers across runs and restores both approvals', () => {
+  const c = createConversation('a'); c.sessionId = 's';
+  const state = { conversations: [c], runs: {} };
+  applyEvent(state, { type: 'run.started', run_id: 'root', session_id: 's' });
+  for (const runId of ['root', 'child']) applyEvent(state, { type: 'permission.requested', session_id: 's', run_id: runId, tool_use_id: 'same', tool_name: 'bash' });
+  applyEvent(state, { type: 'permission.granted', session_id: 's', run_id: 'child', tool_use_id: 'same', decision: 'allow_once' });
+  assert.equal(c.messages[0].decision, null);
+  assert.equal(c.messages[1].decision, 'allow_once');
+  assert.equal(c.status, 'waiting');
+  restorePermissions(c, ['root', 'child'].map(runId => ({ tool_use_id: 'same', run_id: runId, tool_name: 'bash' })));
+  assert.equal(c.messages.filter(m => m.kind === 'permission' && !m.decision).length, 2);
+  applyEvent(state, { type: 'permission.denied', session_id: 's', run_id: 'child', tool_use_id: 'same', decision: 'deny_once' });
+  assert.equal(c.messages[0].decision, null);
+});
+
+// 功能：恢复时的断连或过期占位状态不能遮挡随后到达的服务端真实审批结果。
+// 设计：对两种临时状态分别投递拒绝及重复通知，检查最终决定被校正且提交中标记消失。
+test('authoritative permission events replace provisional reconnect decisions', () => {
+  for (const decision of ['expired', 'disconnected']) {
+    const c = createConversation('a'); c.sessionId = 's';
+    c.messages.push({ kind: 'permission', id: 't', runId: 'r', decision, submitting: true });
+    const state = { conversations: [c], runs: {} };
+    for (let repeat = 0; repeat < 2; repeat++) applyEvent(state, { type: 'permission.denied', session_id: 's', run_id: 'r', tool_use_id: 't', decision: 'deny_once' });
+    assert.equal(c.messages[0].decision, 'deny_once');
+    assert.equal(c.messages[0].submitting, false);
+  }
+});

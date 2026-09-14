@@ -117,8 +117,16 @@ class Workspace:
 
     # 调度器只允许访问仍登记的项目，不会重新领取已经移除的计划。
     def has_project(self, path: Path) -> bool:
-        return (path.resolve() == self.default_path or path.resolve() in self._projects
-                ) and path.resolve() not in self.removing_projects
+        path = path.resolve()
+        return (path == self.default_path or path in self._projects
+                ) and path not in self.removing_projects and path.is_dir()
+
+    # 枚举有效登记项目供启动恢复计划使用，不启动项目 core 或改变界面选择
+    def registered_projects(self) -> list[Path]:
+        paths = [*self._projects]
+        if self.default_path is not None:
+            paths.insert(0, self.default_path)
+        return [path for path in paths if self.has_project(path)]
 
     # 只拦截属于桌面工作区的命令，其他 JSON-RPC 继续传给 core。
     def handles(self, method: str) -> bool:
@@ -340,7 +348,9 @@ class Workspace:
                 "git", "status", "--porcelain=v1", "-z", "--branch", "--untracked-files=all",
                 "--", ".",
             ])
-            prefix = (await self._command(["git", "rev-parse", "--show-prefix"])).strip()
+            prefix = (await self._command([
+                "git", "rev-parse", "--show-prefix",
+            ])).removesuffix("\n")
         except RuntimeError as exc:
             return {"available": False, "branch": "", "files": [], "reason": str(exc)}
         records = output.split("\0")

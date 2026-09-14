@@ -5,6 +5,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from mini_claude.core.tools.base import BaseTool, ToolResult
+from mini_claude.core.tools.paths import resolve_workspace_path
 
 _MAX_DEPTH = 4
 _MAX_ENTRIES = 200
@@ -17,6 +18,7 @@ class ListDirParams(BaseModel):
 
 
 class ListDirTool(BaseTool):
+    retry_on_error = True
     params_model = ListDirParams
     name = "list_dir"
     description = (
@@ -46,23 +48,25 @@ class ListDirTool(BaseTool):
         path_str = p.path
         max_depth = p.max_depth
 
-        if ".." in Path(path_str).parts:
-            raise PermissionError(f"path traversal not allowed: {path_str}")
-
-        root = Path(path_str)
+        root = resolve_workspace_path(Path(path_str))
+        workspace = Path.cwd().resolve()
         if not root.exists():
             raise FileNotFoundError(f"no such directory: {path_str}")
         if not root.is_dir():
             raise NotADirectoryError(f"not a directory: {path_str}")
 
-        lines: list[str] = [str(root) + "/"]
+        lines: list[str] = [str(Path(path_str)) + "/"]
         count = 0
 
+        # 每层先检查所有条目的真实归属，防止从合法入口递归进入外部链接
         def _walk(directory: Path, depth: int, prefix: str) -> None:
             nonlocal count
             if depth > max_depth or count >= _MAX_ENTRIES:
                 return
-            entries = sorted(directory.iterdir(), key=lambda e: (e.is_file(), e.name))
+            entries = list(directory.iterdir())
+            for entry in entries:
+                resolve_workspace_path(entry.relative_to(workspace))
+            entries.sort(key=lambda e: (e.is_file(), e.name))
             for i, entry in enumerate(entries):
                 if count >= _MAX_ENTRIES:
                     lines.append(f"{prefix}... (truncated)")

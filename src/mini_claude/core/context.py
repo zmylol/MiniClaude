@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,11 +22,16 @@ class ExecutionContext:
     result: str = ""
     # skill 或 subagent 角色可覆盖默认 system prompt
     system_prompt_override: str | None = None
+    new_messages: list[dict[str, Any]] = field(default_factory=list)
+    history_position: int = 0
+    summary_messages: list[dict[str, Any]] | None = None
+    summary_position: int = 0
+    persist: Callable[[ExecutionContext], None] | None = field(default=None, repr=False)
 
     # 初始化消息历史，优先使用 session 完整回放内容
     def __post_init__(self) -> None:
         if self.prefill_messages:
-            self.messages = [dict(m) for m in self.prefill_messages]
+            self.messages = deepcopy(self.prefill_messages)
         elif not self.messages:
             self.messages.append({"role": "user", "content": self.goal})
 
@@ -45,7 +52,9 @@ class ExecutionContext:
 
     # 将 LLM 响应的 content blocks 追加为 assistant 消息
     def add_assistant_message(self, content: list[Any]) -> None:
-        self.messages.append({"role": "assistant", "content": content})
+        message = {"role": "assistant", "content": deepcopy(content)}
+        self.messages.append(message)
+        self.new_messages.append(message)
 
     # 将工具调用结果追加为 user 消息；同一步的多个结果共享同一条消息
     def add_tool_result(
@@ -62,6 +71,8 @@ class ExecutionContext:
         last = self.messages[-1] if self.messages else None
         if (
             last is not None
+            and self.new_messages
+            and last is self.new_messages[-1]
             and last["role"] == "user"
             and isinstance(last["content"], list)
             and last["content"]
@@ -69,7 +80,14 @@ class ExecutionContext:
         ):
             last["content"].append(block)
         else:
-            self.messages.append({"role": "user", "content": [block]})
+            message = {"role": "user", "content": [block]}
+            self.messages.append(message)
+            self.new_messages.append(message)
+
+    # 提交完整步骤新增记录和摘要检查点，不依赖模型上下文长度
+    def flush(self) -> None:
+        if self.persist is not None:
+            self.persist(self)
 
     # 返回 True 表示 loop 应停止（状态不再是 running）
     def is_done(self) -> bool:

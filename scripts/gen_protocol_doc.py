@@ -14,6 +14,8 @@ from mini_claude.core.bus.commands import (
     ConfigModelsResult,
     EventSubscribeCommand,
     EventSubscribeResult,
+    PermissionRespondCommand,
+    PermissionRespondResult,
     PingCommand,
     PongResult,
     SessionCancelCommand,
@@ -45,9 +47,14 @@ from mini_claude.core.bus.envelope import EventPushEnvelope
 from mini_claude.core.bus.events import (
     CoreStartedEvent,
     LlmModelSelectedEvent,
+    LlmResponseCompletedEvent,
+    LlmResponseFailedEvent,
     LlmTokenEvent,
     LlmUsageEvent,
     LogLineEvent,
+    PermissionDeniedEvent,
+    PermissionGrantedEvent,
+    PermissionRequestedEvent,
     RunFinishedEvent,
     RunStartedEvent,
     SessionClosedEvent,
@@ -57,6 +64,8 @@ from mini_claude.core.bus.events import (
     SessionWaitingForInputEvent,
     StepFinishedEvent,
     StepStartedEvent,
+    SubagentFinishedEvent,
+    SubagentStartedEvent,
     ToolCallFailedEvent,
     ToolCallFinishedEvent,
     ToolCallStartedEvent,
@@ -221,6 +230,12 @@ def generate() -> str:
         _model_section("EventSubscribeCommand", EventSubscribeCommand, subscribe_req_example),
         "\n",
         _model_section("EventSubscribeResult", EventSubscribeResult, subscribe_resp_example),
+        "\nSubscription scopes: `global`, `run:<id>` (one run), "
+        "`tree:<id>` (root and descendants), and `session:<id>`. "
+        "Replay applies both topic and scope filters and can include related child logs. "
+        "Legacy records inherit missing scope fields from session metadata and recorded parent links.\n\n",
+        _model_section("PermissionRespondCommand", PermissionRespondCommand),
+        _model_section("PermissionRespondResult", PermissionRespondResult),
         "\n",
         _model_section("SessionCreateCommand", SessionCreateCommand, session_create_req_example),
         "\n",
@@ -264,6 +279,10 @@ def generate() -> str:
         _model_section("ScheduleChangedEvent", ScheduleChangedEvent),
         "\n## Run Events\n\n",
         "Events written to `runs/<run_id>/events.jsonl` and forwarded over IPC to subscribed clients.\n\n",
+        "Run events carry `session_id`, `root_run_id`, and `parent_run_id` when known. "
+        "These optional fields preserve compatibility with older logs. Child runs own separate "
+        "logs that remain active after their parent finishes. Approval identity is "
+        "`(run_id, tool_use_id)`; legacy replies without `run_id` require a unique match.\n\n",
         _model_section("RunStartedEvent", RunStartedEvent,
             {"type": "run.started", "run_id": run_id, "goal": "总结 README.md", "ts": ts}),
         "\n",
@@ -295,7 +314,20 @@ def generate() -> str:
              "model": "claude-sonnet-4-6", "strategy": "static", "ts": ts}),
         "\n",
         _model_section("LlmTokenEvent", LlmTokenEvent,
-            {"type": "llm.token", "run_id": run_id, "token": "The ", "ts": ts}),
+            {"type": "llm.token", "run_id": run_id, "step": 1, "token": "The ", "ts": ts}),
+        "\nResponses are identified by `(run_id, step)`. Tokens are provisional. "
+        "`llm.response.completed` replaces the entire text for that response, including an empty "
+        "text, and is safe to apply repeatedly. Ignore later tokens for a settled response. "
+        "`llm.response.failed` marks provisional text incomplete on cancellation or model failure. "
+        "Completion describes a model response; `run.finished` follows history persistence. "
+        "CLI stdout buffers each response until its final text is available.\n\n",
+        _model_section("LlmResponseCompletedEvent", LlmResponseCompletedEvent),
+        _model_section("LlmResponseFailedEvent", LlmResponseFailedEvent),
+        _model_section("PermissionRequestedEvent", PermissionRequestedEvent),
+        _model_section("PermissionGrantedEvent", PermissionGrantedEvent),
+        _model_section("PermissionDeniedEvent", PermissionDeniedEvent),
+        _model_section("SubagentStartedEvent", SubagentStartedEvent),
+        _model_section("SubagentFinishedEvent", SubagentFinishedEvent),
         "\n",
         _model_section("LlmUsageEvent", LlmUsageEvent,
             {"type": "llm.usage", "run_id": run_id, "input_tokens": 512, "output_tokens": 48,

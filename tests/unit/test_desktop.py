@@ -432,20 +432,29 @@ def test_cli_rejects_invalid_options(monkeypatch: pytest.MonkeyPatch, arguments:
 
 
 # 功能：桌面启动异常以清晰的本地提示结束。
-# 设计：错误输出不包含完整配置或测试凭据。
+# 设计：显式使用临时项目与目录，错误输出不包含配置，失败也不能恢复真实最近项目或污染环境。
 def test_cli_reports_startup_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(os, "environ", dict(os.environ))
+    environment = dict(os.environ)
     monkeypatch.setattr(cli, "get_config", lambda: MiniConfig())
-    monkeypatch.setattr(cli, "run_desktop", MagicMock(side_effect=RuntimeError("窗口启动失败")))
-    monkeypatch.setattr(sys, "argv", ["mini-desktop"])
+    run = MagicMock(side_effect=RuntimeError("窗口启动失败"))
+    monkeypatch.setattr(cli, "run_desktop", run)
+    monkeypatch.setattr(sys, "argv", [
+        "mini-desktop", "--project", str(tmp_path),
+        "--storage-path", str(tmp_path / "storage"),
+    ])
 
     with pytest.raises(SystemExit) as exc:
         cli.main()
 
     assert exc.value.code == 1
     assert "MiniClaude 桌面启动失败：窗口启动失败" in capsys.readouterr().err
+    assert run.call_args.args[1] == tmp_path
+    assert run.call_args.kwargs["storage_path"] == tmp_path / "storage"
+    assert dict(os.environ) == environment
 
 
 # 功能：切换项目启动独立 core 并保留旧项目，关闭时只回收自身拥有的进程。

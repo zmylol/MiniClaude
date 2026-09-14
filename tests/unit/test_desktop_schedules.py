@@ -33,6 +33,10 @@ class FakeWorkspace:
     def has_project(self, path: Path) -> bool:
         return True
 
+    # 返回当前登记项目，切换测试中的旧项目仍由调度缓存保持归属
+    def registered_projects(self) -> list[Path]:
+        return [self.project_path] if self.project_selected else []
+
     # 功能：模拟 core 创建会话和接收用户消息的确认响应。
     # 设计：只操作内存，精确观察调度是否使用捕获的项目端点。
     async def request_core_for(
@@ -334,3 +338,82 @@ async def test_secondary_gateway_cannot_recover_or_overwrite_live_schedule(tmp_p
     finally:
         await first.stop()
         await second.stop()
+
+
+# 功能：重启后恢复所有登记项目计划，未到期和禁用计划不启动项目，后台执行不改变当前选择
+# 设计：真实工作区和持久文件跨服务实例重建，仅替换 core 请求并记录懒连接项目，重复扫描验证一次领取
+async def test_restart_restores_registered_project_schedules_lazily(tmp_path: Path) -> None:
+    now = datetime(2026, 9, 5, tzinfo=UTC)
+    current, background, disabled = (tmp_path / name for name in ("current", "background", "disabled"))
+    for path in (current, background, disabled):
+        path.mkdir()
+    storage = tmp_path / "desktop"
+    workspace = DesktopWorkspace(MiniConfig(), current, storage_path=storage)
+    workspace._remember(background)
+    workspace._remember(disabled)
+    service = DesktopServices(workspace, now=lambda: now)
+    workspace.project_path = background
+    await service.handle("schedules.create", schedule_params(now + timedelta(hours=1)))
+    workspace.project_path = disabled
+    await service.handle("schedules.create", {
+        **schedule_params(now - timedelta(days=2)), "enabled": False,
+    })
+    await service.stop()
+    opened: list[Path] = []
+
+    # 记录懒连接所需的项目并返回不含外部配置的测试端点
+    def open_project(path: Path) -> MiniConfig:
+        opened.append(path)
+        return MiniConfig()
+
+    restored_workspace = DesktopWorkspace(
+        MiniConfig(), current, storage_path=storage, open_project=open_project,
+        project_selected=False,
+    )
+    restored_workspace._request_core = AsyncMock(side_effect=[
+        {"session_id": "background-session"}, {"status": "success"},
+    ])
+    restored = DesktopServices(restored_workspace, now=lambda: now)
+    try:
+        await restored.tick()
+        assert opened == []
+        assert background in restored._jobs and disabled in restored._jobs
+        restored._now = lambda: now + timedelta(days=3)
+        await asyncio.gather(restored.tick(), restored.tick())
+        await asyncio.gather(*list(restored._submissions))
+        await restored.tick()
+        assert opened and set(opened) == {background}
+        calls = restored_workspace._request_core.call_args_list
+        assert [call.args[1] for call in calls] == ["session.create", "session.send_message"]
+        assert restored_workspace.project_path == current
+        assert restored_workspace.project_selected is False
+        assert next(iter(restored._jobs[background].values())).status == "success"
+    finally:
+        await restored.stop()
+
+
+# 功能：登记后在磁盘删除的项目不得因恢复计划或请求 core 而被重新创建
+# 设计：工作区已记住项目后删除目录并触发到期检查，确保有效性判断发生在实际执行前
+async def test_deleted_registered_project_is_not_recreated_by_scheduler(tmp_path: Path) -> None:
+    project = tmp_path / "deleted"
+    project.mkdir()
+    opened: list[Path] = []
+
+    # 模拟桌面启动器可能创建目录的行为，验证无效项目不能到达此处
+    def open_project(path: Path) -> MiniConfig:
+        opened.append(path)
+        path.mkdir()
+        return MiniConfig()
+
+    workspace = DesktopWorkspace(MiniConfig(), project, open_project=open_project)
+    workspace._request_core = AsyncMock()
+    project.rmdir()
+    service = DesktopServices(workspace)
+    try:
+        await service.tick()
+        assert not project.exists()
+        with pytest.raises(ValueError):
+            await workspace.request_core_for(project, "session.create", {})
+        assert opened == []
+    finally:
+        await service.stop()

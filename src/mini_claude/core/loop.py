@@ -5,7 +5,12 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from mini_claude.core.bus.events import StepFinishedEvent, StepStartedEvent
+from mini_claude.core.bus.events import (
+    LlmResponseCompletedEvent,
+    LlmResponseFailedEvent,
+    StepFinishedEvent,
+    StepStartedEvent,
+)
 from mini_claude.core.context import ExecutionContext
 from mini_claude.core.events.bus import EventBus
 from mini_claude.core.llm.base import LLMProvider
@@ -25,7 +30,7 @@ def _now() -> str:
 
 
 class AgentLoop:
-    # 初始化循环所需依赖：LLM provider、工具注册表、事件总线，以及可选的权限管理器、压缩器和 session ID
+    # 初始化循环依赖及可选的权限管理器、压缩器和会话标识
     def __init__(
         self,
         provider: LLMProvider,
@@ -85,12 +90,18 @@ class AgentLoop:
                 )
             except asyncio.CancelledError:
                 context.mark_failed("cancelled")
+                await self._bus.publish(LlmResponseFailedEvent(
+                    run_id=context.run_id, step=context.step, reason="cancelled", ts=_now(),
+                ))
                 raise
             except Exception:
                 logging.getLogger(__name__).exception(
                     "LLM call failed run_id=%s step=%d", context.run_id, context.step
                 )
                 context.mark_failed("llm_error")
+                await self._bus.publish(LlmResponseFailedEvent(
+                    run_id=context.run_id, step=context.step, reason="llm_error", ts=_now(),
+                ))
                 break
 
             # [observe] append assistant content blocks to context
@@ -103,6 +114,9 @@ class AgentLoop:
                     {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.input}
                 )
             context.add_assistant_message(blocks)
+            await self._bus.publish(LlmResponseCompletedEvent(
+                run_id=context.run_id, step=context.step, text=response.text, ts=_now(),
+            ))
 
             # [act] run independent calls together; tool errors remain individual results
             if response.stop_reason == "tool_use":
@@ -125,14 +139,17 @@ class AgentLoop:
                     for tc, task in zip(response.tool_calls, tasks):
                         if task.done() and not task.cancelled() and task.exception() is None:
                             result = task.result()
-                            context.add_tool_result(tc.id, result.content, is_error=result.is_error)
+                            context.add_tool_result(
+                                tc.id, result.content, is_error=result.is_error,
+                            )
             elif response.stop_reason == "max_tokens" and response.tool_calls:
                 # Output token limit hit mid-tool-call; input is incomplete.
                 # Add synthetic error results so the conversation stays balanced.
                 for tc in response.tool_calls:
                     context.add_tool_result(
                         tc.id,
-                        "Error: output token limit reached before this tool call could be completed. "
+                        "Error: output token limit reached before this tool call "
+                        "could be completed. "
                         "Please break the task into smaller steps and try again.",
                         is_error=True,
                     )
@@ -156,6 +173,7 @@ class AgentLoop:
             ):
                 await self._compactor.compact(context, self._provider)
 
+            context.flush()
             await self._bus.publish(
                 StepFinishedEvent(run_id=context.run_id, step=context.step, ts=_now())
             )
