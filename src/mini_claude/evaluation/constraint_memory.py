@@ -496,7 +496,8 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         }
     paired = {}
     indexed = {(row["task_id"], row["repeat"], row["method"]): row for row in rows}
-    for baseline in ("summary", "retrieval"):
+    baselines = sorted(set(groups) - {"versioned"}) if "versioned" in groups else []
+    for baseline in baselines:
         wins = losses = ties = 0
         for row in rows:
             other = indexed.get((row["task_id"], row["repeat"], baseline))
@@ -514,6 +515,7 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
 def write_report(output: Path, rows: list[dict[str, Any]], budget: Budget) -> None:
     report = aggregate(rows)
     report["budget"] = asdict(budget)
+    report["report_code_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     (output / "summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     lines = [
         "# Constraint memory pilot",
