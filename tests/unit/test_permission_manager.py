@@ -403,3 +403,45 @@ async def test_permission_timeout_cleans_up_pending() -> None:
     # 超时后迟到的 respond 不应 crash
     mgr.respond("t_late", "allow_once")  # should be noop
     assert "t_late" not in mgr._pending
+
+
+@pytest.mark.parametrize("decision", list(PermissionDecision))
+# 功能：服务端工具只在无需审批的默认允许策略下暴露给模型
+# 设计：同步能力检查不能创建审批等待，覆盖允许、拒绝、询问三种默认决策
+def test_server_tool_gate_requires_automatic_allow(decision: PermissionDecision) -> None:
+    manager = PermissionManager({"web_search": ToolPolicy(default=decision)})
+    assert manager.can_use_server_tool("web_search", "session") == (
+        decision == PermissionDecision.ALLOW
+    )
+    assert manager.pending_for("session") == []
+    assert not manager.can_use_server_tool("unknown_server_tool", "session")
+
+
+@pytest.mark.parametrize("mode", ["ask", "read_only", "full_access"])
+@pytest.mark.parametrize("cached", ["allow", "deny"])
+# 功能：服务端搜索沿用本地工具的会话模式和缓存优先级
+# 设计：对同一管理器对比无需等待的真实本地权限结果，防止两个入口在显式访问模式下分歧
+async def test_server_tool_gate_matches_session_modes_and_cached_decisions(
+    mode: str, cached: str,
+) -> None:
+    manager = PermissionManager({"web_search": ToolPolicy(default=PermissionDecision.DENY)})
+    manager.set_session_mode("session", mode)
+    manager._session_always[("session", "web_search")] = cached
+    manager._persistent_always["web_search"] = "deny" if cached == "allow" else "allow"
+    emitted, emitter = await _collect_emitted()
+    allowed, _ = await manager.check_and_wait("search", "web_search", {}, "session", emitter)
+    assert manager.can_use_server_tool("web_search", "session") == allowed
+    assert not emitted
+
+
+# 功能：服务端工具检查使用当前持久化拒绝，且只读会话仍拒绝浏览器工具
+# 设计：验证静态 evaluate 无法覆盖的缓存分支与只读工具白名单，不让原生工具成为额外授权入口
+def test_server_tool_gate_respects_persistent_denial_and_read_only_tools(tmp_path: Path) -> None:
+    policy_file = tmp_path / "policy.toml"
+    original = PermissionManager(policy_file=policy_file)
+    original._apply_response("always_deny", "previous", "web_search")
+    manager = PermissionManager(policy_file=policy_file)
+    assert manager.evaluate("web_search", {}) == PermissionDecision.ALLOW
+    assert not manager.can_use_server_tool("web_search", "session")
+    manager.set_session_mode("session", "read_only")
+    assert not manager.can_use_server_tool("browser_click", "session")

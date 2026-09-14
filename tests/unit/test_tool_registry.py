@@ -75,3 +75,28 @@ def test_register_same_name_overwrites() -> None:
     found = registry.get("fake")
     assert found is not None
     assert found.description == "updated"
+
+
+# 功能：服务端工具按原生定义注册，且没有可被本地调用器执行的工具实例
+# 设计：保留 type/max_uses 并同时检查 get，防止原生搜索被误作本地重复执行
+def test_server_tool_schema_has_no_local_executor() -> None:
+    registry = ToolRegistry()
+    schema = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+    registry.register_server_tool(schema)
+    assert registry.tool_schemas() == [schema]
+    assert registry.get("web_search") is None
+
+
+# 功能：同名服务端工具优先于本地工具，模型始终只看到一个定义
+# 设计：分别在本地工具之前和之后注册服务端定义，防止后挂载的工具重新暴露本地搜索
+def test_server_tool_registration_takes_precedence_over_local_tool() -> None:
+    registry = ToolRegistry()
+    local = _FakeTool()
+    registry.register(local)
+    registry.register_server_tool({"type": "server_test", "name": "fake"})
+    assert registry.get("fake") is None
+    assert registry.tool_schemas() == [{"type": "server_test", "name": "fake"}]
+
+    registry.register(local)
+    assert registry.get("fake") is None
+    assert registry.tool_schemas() == [{"type": "server_test", "name": "fake"}]
