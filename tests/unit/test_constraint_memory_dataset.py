@@ -54,10 +54,8 @@ def test_event_protocol_has_valid_authority_and_causal_references(dataset: Any) 
                 assert isinstance(event["text"], str) and event["text"].strip()
                 assert isinstance(event["decisions"], list)
                 for decision in event["decisions"]:
-                    assert set(decision) == {"key", "value", "status", "supersedes"}
+                    assert set(decision) == {"key", "status", "supersedes"}
                     assert decision["key"] in task["fields"]
-                    assert isinstance(decision["value"], str) and decision["value"]
-                    assert decision["value"] in event["text"]
                     assert decision["status"] in {"confirmed", "proposed"}
                     if decision["status"] == "confirmed":
                         assert event["role"] == "user"
@@ -79,20 +77,28 @@ def test_gold_is_grounded_in_latest_user_confirmation(dataset: Any) -> None:
     for task in tasks:
         events = [event for episode in task["episodes"] for event in episode]
         for field, answer in answers[task["id"]].items():
-            assert set(answer) == {"value", "evidence_id"}
+            assert set(answer) == {"value", "evidence_id", "obsolete_values"}
+            assert isinstance(answer["value"], str) and answer["value"]
             confirmations = [
-                (event, decision)
+                event
                 for event in events
                 for decision in event["decisions"]
                 if decision["key"] == field and decision["status"] == "confirmed"
             ]
             assert confirmations
-            event, decision = confirmations[-1]
-            assert answer == {"value": decision["value"], "evidence_id": event["id"]}
+            event = confirmations[-1]
+            assert answer["evidence_id"] == event["id"]
             assert event["role"] == "user"
             assert answer["value"] in event["text"]
+            obsolete_values = answer["obsolete_values"]
+            assert isinstance(obsolete_values, list)
+            assert len(obsolete_values) == len(set(obsolete_values))
+            for value in obsolete_values:
+                assert isinstance(value, str) and value and value != answer["value"]
+                assert any(value in earlier["text"] for earlier in confirmations[:-1])
             if task["category"] == "unchanged_control":
                 assert len(confirmations) == 1
+                assert obsolete_values == []
         updates = [
             decision for event in events for decision in event["decisions"]
             if decision["status"] == "confirmed" and decision["supersedes"]
@@ -103,18 +109,25 @@ def test_gold_is_grounded_in_latest_user_confirmation(dataset: Any) -> None:
 # 功能：撤回与局部更新任务真实具备类别定义中的历史结构
 # 设计：检查更新序列和字段数量，避免仅凭类别标签将普通改值任务冒充特殊场景
 def test_reversions_and_scoped_changes_are_present(dataset: Any) -> None:
-    tasks, _ = dataset
+    tasks, answers = dataset
     for task in tasks:
-        confirmations = [
-            decision for episode in task["episodes"] for event in episode
-            for decision in event["decisions"] if decision["status"] == "confirmed"
-        ]
         sequences = {
-            field: [item["value"] for item in confirmations if item["key"] == field]
+            field: [
+                event for episode in task["episodes"] for event in episode
+                for decision in event["decisions"]
+                if decision["status"] == "confirmed" and decision["key"] == field
+            ]
             for field in task["fields"]
         }
         if task["category"] == "reverted_decision":
-            assert any(len(values) == 3 and values[0] == values[2] != values[1]
-                       for values in sequences.values())
+            changed_field = next(field for field, events in sequences.items() if len(events) == 3)
+            answer = answers[task["id"]][changed_field]
+            assert answer["value"] in sequences[changed_field][0]["text"]
+            assert answer["value"] in sequences[changed_field][-1]["text"]
+            assert len(answer["obsolete_values"]) == 1
+            assert answer["obsolete_values"][0] in sequences[changed_field][1]["text"]
+        if task["category"] == "latest_update":
+            assert sorted(len(answer["obsolete_values"])
+                          for answer in answers[task["id"]].values()) == [0, 0, 2]
         if task["category"] == "scoped_update":
             assert sorted(len(values) for values in sequences.values()) == [1, 1, 2]

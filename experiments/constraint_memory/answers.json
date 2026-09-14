@@ -1,0 +1,680 @@
+{
+  "latest_update/api-compatibility": {
+    "api_contract": {
+      "value": "v1-additive",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "v2",
+        "v1-compatible"
+      ]
+    },
+    "error_format": {
+      "value": "problem-json",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "storage": {
+      "value": "postgres",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "latest_update/backup-retention": {
+    "retention": {
+      "value": "21-days",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "14-days",
+        "30-days"
+      ]
+    },
+    "archive_format": {
+      "value": "tar-zstd",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "restore_check": {
+      "value": "daily",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "latest_update/export-container": {
+    "export_format": {
+      "value": "zip-of-csv",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "csv",
+        "xlsx"
+      ]
+    },
+    "text_encoding": {
+      "value": "utf-8",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "null_cell": {
+      "value": "empty",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "latest_update/retry-policy": {
+    "retry_policy": {
+      "value": "exponential-2",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "fixed-3",
+        "exponential-5"
+      ]
+    },
+    "request_timeout": {
+      "value": "8-seconds",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "idempotency": {
+      "value": "required",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "latest_update/language-fallback": {
+    "fallback_locale": {
+      "value": "fr-FR",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "en-US",
+        "en-GB"
+      ]
+    },
+    "translation_source": {
+      "value": "bundled",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "missing_key": {
+      "value": "show-key",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "latest_update/telemetry-sampling": {
+    "sample_rate": {
+      "value": "25-percent",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "100-percent",
+        "10-percent"
+      ]
+    },
+    "identifier": {
+      "value": "session-only",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "sink": {
+      "value": "local-file",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/database-migration": {
+    "migration_mode": {
+      "value": "expand-contract",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "in-place"
+      ]
+    },
+    "rollback": {
+      "value": "required",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "lock_budget": {
+      "value": "2-seconds",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/stylesheet-strategy": {
+    "styling": {
+      "value": "css-modules",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "utility-classes"
+      ]
+    },
+    "theme": {
+      "value": "system",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "motion": {
+      "value": "reduced-aware",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/event-transport": {
+    "transport": {
+      "value": "sse",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "websocket"
+      ]
+    },
+    "heartbeat": {
+      "value": "15-seconds",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "reconnect": {
+      "value": "last-event-id",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/serialization-choice": {
+    "wire_encoding": {
+      "value": "json",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "msgpack"
+      ]
+    },
+    "compression": {
+      "value": "gzip",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "schema_version": {
+      "value": "explicit",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/session-authentication": {
+    "credential_location": {
+      "value": "http-only-cookie",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "authorization-header"
+      ]
+    },
+    "session_duration": {
+      "value": "8-hours",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "csrf": {
+      "value": "double-submit",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "reverted_decision/package-distribution": {
+    "artifact": {
+      "value": "wheel",
+      "evidence_id": "e09",
+      "obsolete_values": [
+        "standalone-binary"
+      ]
+    },
+    "python_minimum": {
+      "value": "3.12",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "dependency_lock": {
+      "value": "committed",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/pagination-proposal": {
+    "page_limit": {
+      "value": "25",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "50"
+      ]
+    },
+    "pagination": {
+      "value": "cursor",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "ordering": {
+      "value": "created-at-desc",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/scheduler-proposal": {
+    "poll_interval": {
+      "value": "20-seconds",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "60-seconds"
+      ]
+    },
+    "overlap": {
+      "value": "forbidden",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "clock_basis": {
+      "value": "monotonic",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/thumbnail-proposal": {
+    "thumbnail_width": {
+      "value": "480",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "320"
+      ]
+    },
+    "image_format": {
+      "value": "webp",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "metadata": {
+      "value": "strip",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/account-delete-proposal": {
+    "undo_window": {
+      "value": "14-days",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "7-days"
+      ]
+    },
+    "deletion_mode": {
+      "value": "soft-delete",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "confirmation": {
+      "value": "typed-name",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/notification-proposal": {
+    "digest_time": {
+      "value": "11:00-UTC",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "09:00-UTC"
+      ]
+    },
+    "delivery_channel": {
+      "value": "in-app",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "deduplication": {
+      "value": "per-event",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "proposal_not_approval/deployment-proposal": {
+    "replicas": {
+      "value": "3",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "2"
+      ]
+    },
+    "rollout": {
+      "value": "rolling",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "health_gate": {
+      "value": "required",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/cache-default": {
+    "cache_ttl": {
+      "value": "30-seconds",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "300-seconds"
+      ]
+    },
+    "cache_scope": {
+      "value": "per-user",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "cache_failures": {
+      "value": "bypass",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/build-target": {
+    "js_target": {
+      "value": "es2018",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "es2020"
+      ]
+    },
+    "source_maps": {
+      "value": "external",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "minification": {
+      "value": "enabled",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/listener-port": {
+    "listen_port": {
+      "value": "8091",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "8080"
+      ]
+    },
+    "bind_address": {
+      "value": "127.0.0.1",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "tls_termination": {
+      "value": "proxy",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/date-parser-log": {
+    "date_order": {
+      "value": "iso-only",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "day-first"
+      ]
+    },
+    "timezone": {
+      "value": "UTC",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "invalid_date": {
+      "value": "reject",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/upload-size": {
+    "max_upload": {
+      "value": "8-MiB",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "20-MiB"
+      ]
+    },
+    "content_check": {
+      "value": "magic-bytes",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "name_policy": {
+      "value": "generated",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "tool_output_not_authority/log-filter": {
+    "log_level": {
+      "value": "warn",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "debug"
+      ]
+    },
+    "log_format": {
+      "value": "jsonl",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "rotation": {
+      "value": "size-based",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/environment-timeout": {
+    "production_timeout": {
+      "value": "5-seconds",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "staging_timeout": {
+      "value": "30-seconds",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "5-seconds"
+      ]
+    },
+    "response_format": {
+      "value": "json",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/responsive-layout": {
+    "desktop_columns": {
+      "value": "3",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "mobile_columns": {
+      "value": "1",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "2"
+      ]
+    },
+    "card_order": {
+      "value": "newest-first",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/operation-retries": {
+    "read_retries": {
+      "value": "2",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "write_retries": {
+      "value": "0",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "2"
+      ]
+    },
+    "backoff": {
+      "value": "jittered",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/route-indexing": {
+    "public_indexing": {
+      "value": "allow",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "private_indexing": {
+      "value": "deny",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "allow"
+      ]
+    },
+    "sitemap_format": {
+      "value": "xml",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/regional-display": {
+    "eu_units": {
+      "value": "metric",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "us_units": {
+      "value": "imperial",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "metric"
+      ]
+    },
+    "rounding": {
+      "value": "one-decimal",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "scoped_update/role-session-duration": {
+    "admin_session": {
+      "value": "60-minutes",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "guest_session": {
+      "value": "15-minutes",
+      "evidence_id": "e06",
+      "obsolete_values": [
+        "60-minutes"
+      ]
+    },
+    "renewal": {
+      "value": "explicit",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/artifact-checksum": {
+    "checksum": {
+      "value": "sha256",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "manifest_format": {
+      "value": "json",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "path_style": {
+      "value": "relative",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/stable-sort": {
+    "sort_order": {
+      "value": "ascending",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "null_position": {
+      "value": "last",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "tie_breaker": {
+      "value": "record-id",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/health-route": {
+    "health_path": {
+      "value": "/healthz",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "success_status": {
+      "value": "204",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "body_mode": {
+      "value": "empty",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/documentation-output": {
+    "doc_format": {
+      "value": "markdown",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "heading_style": {
+      "value": "atx",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "line_endings": {
+      "value": "lf",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/asset-names": {
+    "filename_case": {
+      "value": "kebab-case",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "hash_suffix": {
+      "value": "8-hex",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "output_folder": {
+      "value": "assets",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  },
+  "unchanged_control/config-parser": {
+    "unknown_keys": {
+      "value": "reject",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "duplicate_keys": {
+      "value": "error",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    },
+    "whitespace": {
+      "value": "trim",
+      "evidence_id": "e01",
+      "obsolete_values": []
+    }
+  }
+}
