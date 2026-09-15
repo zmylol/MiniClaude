@@ -4,6 +4,8 @@ import asyncio
 import json
 import subprocess
 
+from mini_claude import __version__
+
 
 # 功能：验证真实 daemon 响应 core.ping 命令并返回包含版本、uptime、时间戳的 PongResult
 # 设计：通过原始 TCP 连接发送 JSON-RPC 帧（不经过任何 SDK 客户端层），直接验证 wire 协议的端到端正确性
@@ -29,7 +31,7 @@ async def test_ping_returns_pong(
     assert resp["jsonrpc"] == "2.0"
     assert resp["id"] == "test-1"
     assert "result" in resp
-    assert resp["result"]["server_version"] == "0.0.1"
+    assert resp["result"]["server_version"] == __version__
     assert resp["result"]["uptime_ms"] >= 0
     assert "received_at" in resp["result"]
 

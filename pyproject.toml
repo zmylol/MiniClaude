@@ -8,7 +8,7 @@ build-backend = "hatchling.build" # 使用 Hatchling 作为构建后端
 # ---- 项目元数据与运行时依赖（PEP 621）----
 [project]
 name = "MiniClaude"
-version = "0.0.1"
+version = "2.0.0b1"
 requires-python = ">=3.12,<3.13" # 仅支持 3.12 小版本范围，与 CI/类型检查一致
 dependencies = [
     "pydantic>=2.0",       # 数据校验与序列化（含 JSON 模型等）

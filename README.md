@@ -14,7 +14,9 @@ TCP loopback 与它通信。
 agent runtime。你可以用 CLI 做脚本化验证，用 TUI 进行多轮交互，也可以通过
 JSON-RPC/NDJSON 协议接入新的前端或自动化工具。
 
-> 当前版本：`0.0.1`。项目仍处于快速迭代阶段，README 以当前仓库中的实现为准。
+> 当前测试版：[2.0.0 Beta 1](https://github.com/zmylol/MiniClaude/releases/tag/v2.0.0-beta.1)
+> （Python 包版本 `2.0.0b1`）。项目仍处于快速迭代阶段。
+> 变更与升级说明见 [CHANGELOG.md](./CHANGELOG.md)，发布步骤见 [版本发布](docs/RELEASING.md)。
 
 ## 目录
 
@@ -135,7 +137,7 @@ uv run mini ping
 成功时 `mini ping` 会输出类似：
 
 ```text
-pong server=0.0.1 uptime=12ms latency=2ms
+pong server=2.0.0b1 uptime=12ms latency=2ms
 ```
 
 也可以前台启动，适合开发时观察日志：
@@ -366,6 +368,8 @@ make verify-s0
 
 ## 文档地图
 
+- [CHANGELOG.md](./CHANGELOG.md)：版本变更、升级说明与历史标签。
+- [docs/RELEASING.md](docs/RELEASING.md)：版本编号约定与发布步骤。
 - [ROADMAP.md](./ROADMAP.md)：S8–S11 的技术方向、范围边界与评测门槛。
 - [RUNBOOK.md](./RUNBOOK.md)：日常操作、配置、日志、开发命令和故障排查。
 - [WIRE_PROTOCOL.md](./WIRE_PROTOCOL.md)：由代码生成的 IPC 协议文档。
